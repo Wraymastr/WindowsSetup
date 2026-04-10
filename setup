@@ -12,7 +12,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 # ============================================================
 $Form = New-Object Windows.Forms.Form
 $Form.Text = "Windows 11 Power Tools - Teacher Setup"
-$Form.Size = "450,820"
+$Form.Size = "450,780"
 $Form.StartPosition = "CenterScreen"
 $Form.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
 $Form.FormBorderStyle = "FixedDialog"
@@ -39,36 +39,55 @@ function New-InfoLabel($Text, $X, $Y, $W, $Color = "Gray") {
     return $lbl
 }
 
-# Static labels (left column)
-New-InfoLabel "COMPUTER :" 8 8  80 "Gray"  | Out-Null
-New-InfoLabel "USER     :" 8 28 80 "Gray"  | Out-Null
-New-InfoLabel "WINDOWS  :" 8 48 80 "Gray"  | Out-Null
-New-InfoLabel "DOMAIN   :" 8 68 80 "Gray"  | Out-Null
-New-InfoLabel "UPTIME   :" 8 88 80 "Gray"  | Out-Null
+# Static labels
+New-InfoLabel "COMPUTER :" 8 8  80 "Gray" | Out-Null
+New-InfoLabel "USER     :" 8 28 80 "Gray" | Out-Null
+New-InfoLabel "WINDOWS  :" 8 48 80 "Gray" | Out-Null
+New-InfoLabel "DOMAIN   :" 8 68 80 "Gray" | Out-Null
+New-InfoLabel "UPTIME   :" 8 88 80 "Gray" | Out-Null
 
-# Dynamic value labels (right column)
+# Dynamic clickable labels
 $lblComputer = New-InfoLabel "" 92 8  310 "Lime"
 $lblUser     = New-InfoLabel "" 92 28 310 "Lime"
 $lblWindows  = New-InfoLabel "" 92 48 310 "Lime"
 $lblDomain   = New-InfoLabel "" 92 68 310 "Yellow"
 $lblUptime   = New-InfoLabel "" 92 88 310 "Lime"
 
+# --- Hover effect helper ---
+function Make-Clickable($lbl, $baseColor) {
+    $lbl.Cursor = [System.Windows.Forms.Cursors]::Hand
+    $lbl.Add_MouseEnter({
+        $lbl.ForeColor = [System.Drawing.Color]::White
+        $lbl.Font = New-Object Drawing.Font("Consolas", 8, [Drawing.FontStyle]::Underline)
+    })
+    $lbl.Add_MouseLeave({
+        $lbl.ForeColor = $baseColor
+        $lbl.Font = New-Object Drawing.Font("Consolas", 8)
+    })
+}
+
+Make-Clickable $lblComputer ([System.Drawing.Color]::Lime)
+Make-Clickable $lblUser     ([System.Drawing.Color]::Lime)
+Make-Clickable $lblWindows  ([System.Drawing.Color]::Lime)
+Make-Clickable $lblDomain   ([System.Drawing.Color]::Yellow)
+Make-Clickable $lblUptime   ([System.Drawing.Color]::Lime)
+
+# ============================================================
+# REFRESH SYSTEM INFO
+# ============================================================
 function Refresh-SystemInfo {
     $cs = Get-CimInstance Win32_ComputerSystem
     $os = Get-CimInstance Win32_OperatingSystem
-
     $lblComputer.Text = $cs.Name
     $lblUser.Text     = $env:USERNAME
     $lblWindows.Text  = "$($os.Caption) (Build $($os.BuildNumber))"
-
     if ($cs.PartOfDomain) {
         $lblDomain.Text      = "DOMAIN: $($cs.Domain)"
-        $lblDomain.ForeColor = "Cyan"
+        $lblDomain.ForeColor = [System.Drawing.Color]::Cyan
     } else {
         $lblDomain.Text      = "WORKGROUP: $($cs.Workgroup)"
-        $lblDomain.ForeColor = "Yellow"
+        $lblDomain.ForeColor = [System.Drawing.Color]::Yellow
     }
-
     $uptime = (Get-Date) - $os.LastBootUpTime
     $lblUptime.Text = "$([int]$uptime.TotalHours)h $($uptime.Minutes)m since last boot"
 }
@@ -87,11 +106,313 @@ $RefreshBtn.Add_Click({ Refresh-SystemInfo })
 $InfoPanel.Controls.Add($RefreshBtn)
 
 # ============================================================
+# CLICK: COMPUTER NAME -> RENAME
+# ============================================================
+$lblComputer.Add_Click({
+    $RenameForm = New-Object Windows.Forms.Form
+    $RenameForm.Text = "Rename This Computer"
+    $RenameForm.Size = "360,185"
+    $RenameForm.StartPosition = "CenterParent"
+    $RenameForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
+    $RenameForm.FormBorderStyle = "FixedDialog"
+    $RenameForm.MaximizeBox = $false
+
+    $l1 = New-Object Windows.Forms.Label
+    $l1.Text = "Current name:  $($lblComputer.Text)"
+    $l1.Location = "15,15"; $l1.Size = "310,18"
+    $l1.ForeColor = "Gray"; $l1.Font = New-Object Drawing.Font("Consolas", 8)
+
+    $l2 = New-Object Windows.Forms.Label
+    $l2.Text = "New computer name (max 15 chars):"
+    $l2.Location = "15,38"; $l2.Size = "310,18"
+    $l2.ForeColor = "White"; $l2.Font = New-Object Drawing.Font("Segoe UI", 9)
+
+    $txtName = New-Object Windows.Forms.TextBox
+    $txtName.Location = "15,58"; $txtName.Size = "310,25"
+    $txtName.Text = $lblComputer.Text
+    $txtName.SelectAll()
+
+    $btnRename = New-Object Windows.Forms.Button
+    $btnRename.Text = "Rename (restart required)"
+    $btnRename.Location = "15,95"; $btnRename.Size = "205,35"
+    $btnRename.FlatStyle = "Flat"; $btnRename.ForeColor = "White"
+    $btnRename.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5bc0de")
+    $btnRename.Font = New-Object Drawing.Font("Segoe UI", 9, [Drawing.FontStyle]::Bold)
+    $btnRename.Add_Click({
+        $newName = $txtName.Text.Trim()
+        if ([string]::IsNullOrWhiteSpace($newName) -or $newName -eq $lblComputer.Text) {
+            [Windows.Forms.MessageBox]::Show("Please enter a new name.", "No Change"); return
+        }
+        if ($newName.Length -gt 15) {
+            [Windows.Forms.MessageBox]::Show("Max 15 characters!", "Too Long"); return
+        }
+        try {
+            Rename-Computer -NewName $newName -Force -ErrorAction Stop
+            Write-ToUI "Computer renamed to '$newName' — restart to apply." "Cyan"
+            [Windows.Forms.MessageBox]::Show("Renamed to '$newName'.`nRestart when ready.", "Done")
+            $RenameForm.Close()
+            Refresh-SystemInfo
+        } catch {
+            [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)", "Error")
+        }
+    })
+
+    $btnCancel = New-Object Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Location = "228,95"; $btnCancel.Size = "97,35"
+    $btnCancel.FlatStyle = "Flat"; $btnCancel.ForeColor = "White"
+    $btnCancel.BackColor = [Drawing.Color]::FromArgb(60,60,60)
+    $btnCancel.Add_Click({ $RenameForm.Close() })
+
+    $RenameForm.Controls.AddRange(@($l1, $l2, $txtName, $btnRename, $btnCancel))
+    $RenameForm.ShowDialog()
+})
+
+# ============================================================
+# CLICK: USERNAME -> PASSWORD CHANGE
+# ============================================================
+$lblUser.Add_Click({
+    $PassForm = New-Object Windows.Forms.Form
+    $PassForm.Text = "Change User Password"
+    $PassForm.Size = "360,235"
+    $PassForm.StartPosition = "CenterParent"
+    $PassForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
+    $PassForm.FormBorderStyle = "FixedDialog"
+    $PassForm.MaximizeBox = $false
+
+    $l1 = New-Object Windows.Forms.Label
+    $l1.Text = "Changing password for:  $($env:USERNAME)"
+    $l1.Location = "15,15"; $l1.Size = "310,18"
+    $l1.ForeColor = "Gray"; $l1.Font = New-Object Drawing.Font("Consolas", 8)
+
+    $l2 = New-Object Windows.Forms.Label
+    $l2.Text = "New Password:"; $l2.Location = "15,40"; $l2.Size = "310,18"
+    $l2.ForeColor = "White"; $l2.Font = New-Object Drawing.Font("Segoe UI", 9)
+
+    $txtP1 = New-Object Windows.Forms.TextBox
+    $txtP1.Location = "15,60"; $txtP1.Size = "310,25"
+    $txtP1.UseSystemPasswordChar = $true
+
+    $l3 = New-Object Windows.Forms.Label
+    $l3.Text = "Confirm Password:"; $l3.Location = "15,95"; $l3.Size = "310,18"
+    $l3.ForeColor = "White"; $l3.Font = New-Object Drawing.Font("Segoe UI", 9)
+
+    $txtP2 = New-Object Windows.Forms.TextBox
+    $txtP2.Location = "15,115"; $txtP2.Size = "310,25"
+    $txtP2.UseSystemPasswordChar = $true
+
+    $btnChange = New-Object Windows.Forms.Button
+    $btnChange.Text = "Change Password"
+    $btnChange.Location = "15,155"; $btnChange.Size = "200,35"
+    $btnChange.FlatStyle = "Flat"; $btnChange.ForeColor = "White"
+    $btnChange.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#f0ad4e")
+    $btnChange.Font = New-Object Drawing.Font("Segoe UI", 9, [Drawing.FontStyle]::Bold)
+    $btnChange.Add_Click({
+        if ($txtP1.Text -ne $txtP2.Text) {
+            [System.Media.SystemSounds]::Hand.Play()
+            [Windows.Forms.MessageBox]::Show("Passwords do not match!", "Error"); return
+        }
+        if ($txtP1.Text.Length -lt 1) {
+            [Windows.Forms.MessageBox]::Show("Password cannot be empty.", "Error"); return
+        }
+        try {
+            $user = [adsi]"WinNT://./$($env:USERNAME),user"
+            $user.SetPassword($txtP1.Text)
+            $user.SetInfo()
+            Write-ToUI "Password changed for $($env:USERNAME)." "Lime"
+            [Windows.Forms.MessageBox]::Show("Password changed successfully!", "Done")
+            $PassForm.Close()
+        } catch {
+            [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)", "Error")
+        }
+    })
+
+    $btnCancel = New-Object Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Location = "223,155"; $btnCancel.Size = "102,35"
+    $btnCancel.FlatStyle = "Flat"; $btnCancel.ForeColor = "White"
+    $btnCancel.BackColor = [Drawing.Color]::FromArgb(60,60,60)
+    $btnCancel.Add_Click({ $PassForm.Close() })
+
+    $PassForm.Controls.AddRange(@($l1,$l2,$txtP1,$l3,$txtP2,$btnChange,$btnCancel))
+    $PassForm.ShowDialog()
+})
+
+# ============================================================
+# CLICK: WINDOWS VERSION -> PRODUCT KEY INPUT
+# ============================================================
+$lblWindows.Add_Click({
+    $KeyForm = New-Object Windows.Forms.Form
+    $KeyForm.Text = "Enter Product Key"
+    $KeyForm.Size = "380,185"
+    $KeyForm.StartPosition = "CenterParent"
+    $KeyForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
+    $KeyForm.FormBorderStyle = "FixedDialog"
+    $KeyForm.MaximizeBox = $false
+
+    $l1 = New-Object Windows.Forms.Label
+    $l1.Text = "Windows Product Key:"
+    $l1.Location = "15,15"; $l1.Size = "330,18"
+    $l1.ForeColor = "White"; $l1.Font = New-Object Drawing.Font("Segoe UI", 9)
+
+    $l2 = New-Object Windows.Forms.Label
+    $l2.Text = "Format: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+    $l2.Location = "15,35"; $l2.Size = "330,16"
+    $l2.ForeColor = "Gray"; $l2.Font = New-Object Drawing.Font("Consolas", 7)
+
+    $txtKey = New-Object Windows.Forms.TextBox
+    $txtKey.Location = "15,58"; $txtKey.Size = "330,25"
+    $txtKey.Font = New-Object Drawing.Font("Consolas", 10)
+    $txtKey.CharacterCasing = "Upper"
+
+    # ===========================================================
+    # DEFAULT PRODUCT KEY — CHANGE THIS LINE TO UPDATE THE KEY
+    # ===========================================================
+    $txtKey.Text = "H3T4N-27DJJ-D2PMR-HY8BG-MKMM3"
+    # ===========================================================
+
+    $txtKey.SelectAll()
+
+    $btnActivate = New-Object Windows.Forms.Button
+    $btnActivate.Text = "Activate Windows"
+    $btnActivate.Location = "15,95"; $btnActivate.Size = "205,35"
+    $btnActivate.FlatStyle = "Flat"; $btnActivate.ForeColor = "White"
+    $btnActivate.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5cb85c")
+    $btnActivate.Font = New-Object Drawing.Font("Segoe UI", 9, [Drawing.FontStyle]::Bold)
+    $btnActivate.Add_Click({
+        $key = $txtKey.Text.Trim()
+        # Basic format check: 5 groups of 5 chars separated by dashes
+        if ($key -notmatch "^[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$") {
+            [Windows.Forms.MessageBox]::Show("Key format looks wrong.`nExpected: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX", "Invalid Key")
+            return
+        }
+        try {
+            Write-ToUI "Installing product key..." "Cyan"
+            $result = & cscript.exe "$env:SystemRoot\System32\slmgr.vbs" /ipk $key 2>&1
+            Write-ToUI "Activating with Microsoft..." "Cyan"
+            & cscript.exe "$env:SystemRoot\System32\slmgr.vbs" /ato 2>&1 | Out-Null
+            Write-ToUI "Activation complete." "Lime"
+            [Windows.Forms.MessageBox]::Show("Key applied and activation attempted.`nCheck Settings > Activation for status.", "Done")
+            $KeyForm.Close()
+        } catch {
+            [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)", "Error")
+        }
+    })
+
+    $btnCancel = New-Object Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Location = "228,95"; $btnCancel.Size = "117,35"
+    $btnCancel.FlatStyle = "Flat"; $btnCancel.ForeColor = "White"
+    $btnCancel.BackColor = [Drawing.Color]::FromArgb(60,60,60)
+    $btnCancel.Add_Click({ $KeyForm.Close() })
+
+    $KeyForm.Controls.AddRange(@($l1,$l2,$txtKey,$btnActivate,$btnCancel))
+    $KeyForm.ShowDialog()
+})
+
+# ============================================================
+# CLICK: DOMAIN -> DOMAIN TOOLS
+# ============================================================
+$lblDomain.Add_Click({
+    [System.Media.SystemSounds]::Asterisk.Play()
+    Write-ToUI "Opening Domain Tools..." "Cyan"
+
+    $DomainForm = New-Object Windows.Forms.Form
+    $DomainForm.Text = "Domain Manager"
+    $DomainForm.Size = "360,230"
+    $DomainForm.StartPosition = "CenterParent"
+    $DomainForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
+    $DomainForm.FormBorderStyle = "FixedDialog"
+    $DomainForm.MaximizeBox = $false
+
+    $lbl = New-Object Windows.Forms.Label
+    $lbl.Text = "Domain Name:"; $lbl.Location = "20,20"; $lbl.Size = "300,20"
+    $lbl.ForeColor = "White"
+
+    $txt = New-Object Windows.Forms.TextBox
+    $txt.Location = "20,45"; $txt.Size = "300,25"
+
+    $joinBtn = New-Object Windows.Forms.Button
+    $joinBtn.Text = "Join Domain (will reboot)"
+    $joinBtn.Location = "20,85"; $joinBtn.Size = "300,38"
+    $joinBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5cb85c")
+    $joinBtn.ForeColor = "White"; $joinBtn.FlatStyle = "Flat"
+    $joinBtn.Add_Click({
+        if ([string]::IsNullOrWhiteSpace($txt.Text)) {
+            [System.Media.SystemSounds]::Hand.Play()
+            [Windows.Forms.MessageBox]::Show("Enter a domain name first!", "Error"); return
+        }
+        $confirm = [Windows.Forms.MessageBox]::Show("Join '$($txt.Text)' and reboot?", "Confirm", "YesNo")
+        if ($confirm -eq "Yes") {
+            try { Add-Computer -DomainName $txt.Text -Restart -ErrorAction Stop }
+            catch { [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)") }
+        }
+    })
+
+    $leaveBtn = New-Object Windows.Forms.Button
+    $leaveBtn.Text = "Leave Domain (back to WORKGROUP)"
+    $leaveBtn.Location = "20,133"; $leaveBtn.Size = "300,38"
+    $leaveBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#d9534f")
+    $leaveBtn.ForeColor = "White"; $leaveBtn.FlatStyle = "Flat"
+    $leaveBtn.Add_Click({
+        $confirm = [Windows.Forms.MessageBox]::Show("Leave domain and reboot?", "Confirm", "YesNo")
+        if ($confirm -eq "Yes") { Remove-Computer -WorkgroupName "WORKGROUP" -Force -Restart }
+    })
+
+    $DomainForm.Controls.AddRange(@($lbl, $txt, $joinBtn, $leaveBtn))
+    $DomainForm.ShowDialog()
+    Refresh-SystemInfo
+})
+
+# ============================================================
+# CLICK: UPTIME -> RESTART / SHUTDOWN
+# ============================================================
+$lblUptime.Add_Click({
+    $PowerForm = New-Object Windows.Forms.Form
+    $PowerForm.Text = "Power Options"
+    $PowerForm.Size = "300,175"
+    $PowerForm.StartPosition = "CenterParent"
+    $PowerForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
+    $PowerForm.FormBorderStyle = "FixedDialog"
+    $PowerForm.MaximizeBox = $false
+
+    $lbl = New-Object Windows.Forms.Label
+    $lbl.Text = "What would you like to do?"
+    $lbl.Location = "15,15"; $lbl.Size = "255,20"
+    $lbl.ForeColor = "White"; $lbl.Font = New-Object Drawing.Font("Segoe UI", 10)
+
+    $btnRestart = New-Object Windows.Forms.Button
+    $btnRestart.Text = "↺  Restart Now"
+    $btnRestart.Location = "15,50"; $btnRestart.Size = "250,38"
+    $btnRestart.FlatStyle = "Flat"; $btnRestart.ForeColor = "White"
+    $btnRestart.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#f0ad4e")
+    $btnRestart.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
+    $btnRestart.Add_Click({
+        $confirm = [Windows.Forms.MessageBox]::Show("Restart now?", "Confirm", "YesNo")
+        if ($confirm -eq "Yes") { Restart-Computer -Force }
+    })
+
+    $btnShutdown = New-Object Windows.Forms.Button
+    $btnShutdown.Text = "⏻  Shut Down Now"
+    $btnShutdown.Location = "15,98"; $btnShutdown.Size = "250,38"
+    $btnShutdown.FlatStyle = "Flat"; $btnShutdown.ForeColor = "White"
+    $btnShutdown.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#d9534f")
+    $btnShutdown.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
+    $btnShutdown.Add_Click({
+        $confirm = [Windows.Forms.MessageBox]::Show("Shut down now?", "Confirm", "YesNo")
+        if ($confirm -eq "Yes") { Stop-Computer -Force }
+    })
+
+    $PowerForm.Controls.AddRange(@($lbl, $btnRestart, $btnShutdown))
+    $PowerForm.ShowDialog()
+})
+
+# ============================================================
 # OUTPUT CONSOLE
 # ============================================================
 $ConsoleOutput = New-Object Windows.Forms.RichTextBox
-$ConsoleOutput.Location = "10,430"
-$ConsoleOutput.Size = "415,270"
+$ConsoleOutput.Location = "10,390"
+$ConsoleOutput.Size = "415,280"
 $ConsoleOutput.BackColor = "Black"
 $ConsoleOutput.ForeColor = "Lime"
 $ConsoleOutput.ReadOnly = $true
@@ -108,58 +429,139 @@ function Write-ToUI($Message, $Color = "Lime") {
 }
 
 # ============================================================
-# BUTTON HELPER (direct wiring, no scope tricks)
+# APP PICKER - shared function used by both Install button
+# and Run All so the subform always closes before work starts
 # ============================================================
-function New-ActionButton($Text, $Top, $HexColor) {
-    $Btn = New-Object Windows.Forms.Button
-    $Btn.Text = $Text
-    $Btn.Location = "10,$Top"
-    $Btn.Size = "415,42"
-    $Btn.FlatStyle = "Flat"
-    $Btn.ForeColor = "White"
-    $Btn.BackColor = [System.Drawing.ColorTranslator]::FromHtml($HexColor)
-    $Btn.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
-    $Form.Controls.Add($Btn)
-    return $Btn
+function Show-AppPicker($RunAfter) {
+    $AppForm = New-Object Windows.Forms.Form
+    $AppForm.Text = "Select Apps to Install"
+    $AppForm.Size = "360,100"   # will be resized dynamically below
+    $AppForm.StartPosition = "CenterParent"
+    $AppForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
+    $AppForm.FormBorderStyle = "FixedDialog"
+    $AppForm.MaximizeBox = $false
+
+    $appHeader = New-Object Windows.Forms.Label
+    $appHeader.Text = "Choose apps to install:"
+    $appHeader.Location = "15,12"; $appHeader.Size = "300,20"
+    $appHeader.ForeColor = "White"
+    $appHeader.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
+    $AppForm.Controls.Add($appHeader)
+
+    # -------------------------------------------------------
+    # APP LIST — add or remove entries here as needed
+    # Format: "Display Name" = "Winget.ID"
+    # -------------------------------------------------------
+    $appDefinitions = [ordered]@{
+        "Google Chrome"        = "Google.Chrome"
+        "Google Drive"         = "Google.GoogleDrive"
+        "Mozilla Firefox"      = "Mozilla.Firefox"
+        "VLC Media Player"     = "VideoLAN.VLC"
+        "Adobe Acrobat Reader" = "Adobe.Acrobat.Reader.64-bit"
+        "Zoom"                 = "Zoom.Zoom"
+    }
+    # -------------------------------------------------------
+
+    $checkboxes = @{}
+    $yPos = 40
+    foreach ($appName in $appDefinitions.Keys) {
+        $cb = New-Object Windows.Forms.CheckBox
+        $cb.Text = $appName; $cb.Location = "20,$yPos"; $cb.Size = "300,24"
+        $cb.ForeColor = "White"; $cb.Font = New-Object Drawing.Font("Segoe UI", 9)
+        $cb.Checked = $true
+        $AppForm.Controls.Add($cb)
+        $checkboxes[$appName] = $cb
+        $yPos += 28
+    }
+
+    # Divider
+    $div = New-Object Windows.Forms.Label
+    $div.Text = "─────────── Set as Default ───────────"
+    $div.Location = "15,$yPos"; $div.Size = "310,18"
+    $div.ForeColor = "Gray"; $div.Font = New-Object Drawing.Font("Consolas", 8)
+    $AppForm.Controls.Add($div)
+    $yPos += 24
+
+    $cbChromeDef = New-Object Windows.Forms.CheckBox
+    $cbChromeDef.Text = "Set Chrome as default browser"
+    $cbChromeDef.Location = "20,$yPos"; $cbChromeDef.Size = "300,24"
+    $cbChromeDef.ForeColor = "White"; $cbChromeDef.Font = New-Object Drawing.Font("Segoe UI", 9)
+    $cbChromeDef.Checked = $true
+    $AppForm.Controls.Add($cbChromeDef)
+    $yPos += 28
+
+    $cbVLCDef = New-Object Windows.Forms.CheckBox
+    $cbVLCDef.Text = "Set VLC as default media player"
+    $cbVLCDef.Location = "20,$yPos"; $cbVLCDef.Size = "300,24"
+    $cbVLCDef.ForeColor = "White"; $cbVLCDef.Font = New-Object Drawing.Font("Segoe UI", 9)
+    $cbVLCDef.Checked = $true
+    $AppForm.Controls.Add($cbVLCDef)
+    $yPos += 36
+
+    # Select All / None
+    $btnSelAll = New-Object Windows.Forms.Button
+    $btnSelAll.Text = "Select All"; $btnSelAll.Location = "20,$yPos"; $btnSelAll.Size = "140,28"
+    $btnSelAll.FlatStyle = "Flat"; $btnSelAll.ForeColor = "White"
+    $btnSelAll.BackColor = [Drawing.Color]::FromArgb(60,60,60)
+    $btnSelAll.Add_Click({
+        foreach ($cb in $checkboxes.Values) { $cb.Checked = $true }
+        $cbChromeDef.Checked = $true; $cbVLCDef.Checked = $true
+    })
+    $AppForm.Controls.Add($btnSelAll)
+
+    $btnSelNone = New-Object Windows.Forms.Button
+    $btnSelNone.Text = "Select None"; $btnSelNone.Location = "170,$yPos"; $btnSelNone.Size = "140,28"
+    $btnSelNone.FlatStyle = "Flat"; $btnSelNone.ForeColor = "White"
+    $btnSelNone.BackColor = [Drawing.Color]::FromArgb(60,60,60)
+    $btnSelNone.Add_Click({
+        foreach ($cb in $checkboxes.Values) { $cb.Checked = $false }
+        $cbChromeDef.Checked = $false; $cbVLCDef.Checked = $false
+    })
+    $AppForm.Controls.Add($btnSelNone)
+    $yPos += 38
+
+    # GO button — closes form FIRST, then runs installs
+    $btnGo = New-Object Windows.Forms.Button
+    $btnGo.Text = "⬇ INSTALL SELECTED"
+    $btnGo.Location = "20,$yPos"; $btnGo.Size = "295,40"
+    $btnGo.FlatStyle = "Flat"; $btnGo.ForeColor = "White"
+    $btnGo.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5cb85c")
+    $btnGo.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
+    $btnGo.Add_Click({
+        $selected = @()
+        foreach ($appName in $checkboxes.Keys) {
+            if ($checkboxes[$appName].Checked) { $selected += $appDefinitions[$appName] }
+        }
+        $doChrome = $cbChromeDef.Checked
+        $doVLC    = $cbVLCDef.Checked
+
+        if ($selected.Count -eq 0 -and -not $doChrome -and -not $doVLC) {
+            [Windows.Forms.MessageBox]::Show("Nothing selected!", "Nothing to do"); return
+        }
+
+        # CLOSE THE FORM BEFORE RUNNING — fixes the hanging prompt issue
+        $AppForm.DialogResult = [Windows.Forms.DialogResult]::OK
+        $AppForm.Close()
+
+        # Hand off to the caller's script block with what was selected
+        & $RunAfter $selected $doChrome $doVLC
+    })
+    $AppForm.Controls.Add($btnGo)
+
+    $AppForm.Size = "360,$($yPos + 100)"
+    $AppForm.ShowDialog() | Out-Null
 }
 
 # ============================================================
-# BUTTONS
-# ============================================================
-$b1 = New-ActionButton "1. REMOVE MS BLOAT"     130 "#d9534f"
-$b2 = New-ActionButton "2. HP CLEANUP"           182 "#c9784e"
-$b3 = New-ActionButton "3. PRIVACY & TELEMETRY"  234 "#5bc0de"
-$b4 = New-ActionButton "4. INSTALL APPS"         286 "#5cb85c"
-$b5 = New-ActionButton "5. DOMAIN TOOLS"         338 "#f0ad4e"
-
-# RUN ALL - bigger, stands out
-$bAll = New-Object Windows.Forms.Button
-$bAll.Text = "⚡ RUN ALL (Bloat + Privacy + Apps)"
-$bAll.Location = "10,130"
-$bAll.Size = "415,42"
-$bAll.FlatStyle = "Flat"
-$bAll.ForeColor = "White"
-$bAll.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#6f42c1")
-$bAll.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
-$Form.Controls.Add($bAll)
-
-# Shift action buttons down to make room for Run All
-$b1.Location = "10,182"
-$b2.Location = "10,234"
-$b3.Location = "10,286"
-$b4.Location = "10,338"
-$b5.Location = "10,390"
-
-# ============================================================
-# SHARED LOGIC BLOCKS (called by both individual buttons + Run All)
+# SHARED LOGIC FUNCTIONS
 # ============================================================
 function Run-Debloat {
     Write-ToUI "Starting Microsoft bloat removal..." "Yellow"
     $bloatApps = @(
-        "*MicrosoftTeams*", "*MSTeams*", "*Clipchamp*", "*Xbox*", "*Cortana*",
-        "*MicrosoftNews*", "*BingWeather*", "*GetHelp*", "*FeedbackHub*",
-        "*WindowsMaps*", "*YourPhone*", "*MicrosoftToDo*", "*MicrosoftOfficeHub*",
-        "*People*", "*ZuneMusic*", "*ZuneVideo*", "Microsoft.Messaging", "Microsoft.OneConnect"
+        "*MicrosoftTeams*","*MSTeams*","*Clipchamp*","*Xbox*","*Cortana*",
+        "*MicrosoftNews*","*BingWeather*","*GetHelp*","*FeedbackHub*",
+        "*WindowsMaps*","*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
+        "*People*","*ZuneMusic*","*ZuneVideo*","Microsoft.Messaging","Microsoft.OneConnect"
     )
     foreach ($app in $bloatApps) {
         Write-ToUI "Checking: $app"
@@ -194,10 +596,10 @@ function Run-Privacy {
     Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
     Write-ToUI "Telemetry disabled."
     $AdsPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
-    Set-ItemProperty -Path $AdsPath -Name "SubscribedContent-310093Enabled"   -Value 0 -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path $AdsPath -Name "SubscribedContent-353696Enabled"   -Value 0 -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path $AdsPath -Name "RotatingLockScreenOverlayEnabled"  -Value 0 -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path $AdsPath -Name "SubscribedContent-338387Enabled"   -Value 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $AdsPath -Name "SubscribedContent-310093Enabled"  -Value 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $AdsPath -Name "SubscribedContent-353696Enabled"  -Value 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $AdsPath -Name "RotatingLockScreenOverlayEnabled" -Value 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $AdsPath -Name "SubscribedContent-338387Enabled"  -Value 0 -ErrorAction SilentlyContinue
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" -Name "Enabled" -Value 0 -ErrorAction SilentlyContinue
     Write-ToUI "Ads and tailored experiences disabled."
     Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds" -Name "ShellFeedsTaskbarViewMode" -Value 2 -ErrorAction SilentlyContinue
@@ -209,22 +611,96 @@ function Run-Privacy {
     Write-ToUI "Search bar decluttered."
     powercfg.exe /hibernate off
     Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Edge" -Name "StartupBoostEnabled" -Value 0 -ErrorAction SilentlyContinue
-    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" -Name "ActiveHoursStart" -Value 8 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" -Name "ActiveHoursStart" -Value 8  -ErrorAction SilentlyContinue
     Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" -Name "ActiveHoursEnd"   -Value 17 -ErrorAction SilentlyContinue
     Write-ToUI "Performance tweaks applied. Active hours set 8AM-5PM." "Lime"
 }
 
-function Run-Installs($AppList) {
-    Write-ToUI "Configuring Winget..." "Cyan"
-    winget settings --enable bypasscertificatepinningformicrosoftstore
-    Start-Sleep -Seconds 2
-    foreach ($id in $AppList) {
-        Write-ToUI "Installing $id..."
-        winget install --id $id -e --accept-source-agreements --accept-package-agreements --silent
-        Write-ToUI "  Done: $id" "Lime"
+function Set-ChromeDefault {
+    Write-ToUI "Setting Chrome as default browser..." "Cyan"
+    $chromeExe = "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe"
+    if (-not (Test-Path $chromeExe)) { $chromeExe = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+    if (Test-Path $chromeExe) {
+        Start-Process $chromeExe "--make-default-browser" -NoNewWindow -Wait
+        Write-ToUI "Chrome default browser request sent." "Lime"
+    } else {
+        Write-ToUI "Chrome not found — install it first." "Orange"
     }
-    Write-ToUI "All installs complete!" "Lime"
 }
+
+function Set-VLCDefault {
+    Write-ToUI "Setting VLC as default for video/audio types..." "Cyan"
+    $vlcExe = "${env:ProgramFiles}\VideoLAN\VLC\vlc.exe"
+    if (-not (Test-Path $vlcExe)) { $vlcExe = "${env:ProgramFiles(x86)}\VideoLAN\VLC\vlc.exe" }
+    if (-not (Test-Path $vlcExe)) { Write-ToUI "VLC not found — install it first." "Orange"; return }
+
+    $extensions = @(".mp4",".mkv",".avi",".mov",".wmv",".mp3",".wav",".flac",".m4a",".aac",".m4v",".ts",".mpg",".mpeg")
+    foreach ($ext in $extensions) {
+        $progId  = "VLC$ext"
+        $progPath = "HKCU:\Software\Classes\$progId"
+        if (-not (Test-Path $progPath)) { New-Item -Path $progPath -Force | Out-Null }
+        New-Item -Path "$progPath\shell\open\command" -Force | Out-Null
+        Set-ItemProperty -Path "$progPath\shell\open\command" -Name "(default)" -Value "`"$vlcExe`" `"%1`"" -ErrorAction SilentlyContinue
+        $extPath = "HKCU:\Software\Classes\$ext"
+        if (-not (Test-Path $extPath)) { New-Item -Path $extPath -Force | Out-Null }
+        Set-ItemProperty -Path $extPath -Name "(default)" -Value $progId -ErrorAction SilentlyContinue
+        $ucPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$ext\UserChoice"
+        if (-not (Test-Path $ucPath)) { New-Item -Path $ucPath -Force | Out-Null }
+        Set-ItemProperty -Path $ucPath -Name "ProgId" -Value $progId -ErrorAction SilentlyContinue
+        Write-ToUI "  $ext -> VLC"
+    }
+    Write-ToUI "VLC defaults set." "Lime"
+}
+
+function Run-Installs($AppList, $DoChrome, $DoVLC) {
+    if ($AppList.Count -gt 0) {
+        Write-ToUI "Configuring Winget..." "Cyan"
+        winget settings --enable bypasscertificatepinningformicrosoftstore
+        Start-Sleep -Seconds 2
+        foreach ($id in $AppList) {
+            Write-ToUI "Installing $id..."
+            winget install --id $id -e --accept-source-agreements --accept-package-agreements --silent
+            Write-ToUI "  Done: $id" "Lime"
+        }
+    }
+    if ($DoChrome) { Set-ChromeDefault }
+    if ($DoVLC)    { Set-VLCDefault }
+    Write-ToUI "App section complete!" "Lime"
+}
+
+# ============================================================
+# BUTTON HELPER
+# ============================================================
+function New-ActionButton($Text, $Top, $HexColor) {
+    $Btn = New-Object Windows.Forms.Button
+    $Btn.Text = $Text
+    $Btn.Location = "10,$Top"
+    $Btn.Size = "415,42"
+    $Btn.FlatStyle = "Flat"
+    $Btn.ForeColor = "White"
+    $Btn.BackColor = [System.Drawing.ColorTranslator]::FromHtml($HexColor)
+    $Btn.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
+    $Form.Controls.Add($Btn)
+    return $Btn
+}
+
+# ============================================================
+# BUTTONS  (Domain Tools button removed — now on info panel)
+# ============================================================
+$bAll = New-Object Windows.Forms.Button
+$bAll.Text = "⚡ RUN ALL (Bloat + Privacy + Apps)"
+$bAll.Location = "10,130"
+$bAll.Size = "415,42"
+$bAll.FlatStyle = "Flat"
+$bAll.ForeColor = "White"
+$bAll.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#6f42c1")
+$bAll.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
+$Form.Controls.Add($bAll)
+
+$b1 = New-ActionButton "1. REMOVE MS BLOAT"    182 "#d9534f"
+$b2 = New-ActionButton "2. HP CLEANUP"          234 "#c9784e"
+$b3 = New-ActionButton "3. PRIVACY & TELEMETRY" 286 "#5bc0de"
+$b4 = New-ActionButton "4. INSTALL APPS"        338 "#5cb85c"
 
 # ============================================================
 # BUTTON 1 - DEBLOAT
@@ -269,224 +745,58 @@ $b3.Add_Click({
 })
 
 # ============================================================
-# BUTTON 4 - INSTALL APPS (submenu)
+# BUTTON 4 - INSTALL APPS
 # ============================================================
 $b4.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
-
-    # --- App Picker Submenu ---
-    $AppForm = New-Object Windows.Forms.Form
-    $AppForm.Text = "Select Apps to Install"
-    $AppForm.Size = "340,420"
-    $AppForm.StartPosition = "CenterParent"
-    $AppForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
-    $AppForm.FormBorderStyle = "FixedDialog"
-    $AppForm.MaximizeBox = $false
-
-    $appHeader = New-Object Windows.Forms.Label
-    $appHeader.Text = "Choose apps to install:"
-    $appHeader.Location = "15,12"
-    $appHeader.Size = "290,20"
-    $appHeader.ForeColor = "White"
-    $appHeader.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
-    $AppForm.Controls.Add($appHeader)
-
-    # App definitions: Display Name -> Winget ID
-    $appDefinitions = [ordered]@{
-        "Google Chrome"     = "Google.Chrome"
-        "Google Drive"      = "Google.GoogleDrive"
-        "Mozilla Firefox"   = "Mozilla.Firefox"
-        "VLC Media Player"  = "VideoLAN.VLC"
-        "Adobe Acrobat Reader" = "Adobe.Acrobat.Reader.64-bit"
-        "Zoom"              = "Zoom.Zoom"
+    $b4.Enabled = $false; $b4.Text = "Working..."
+    Show-AppPicker {
+        param($selected, $doChrome, $doVLC)
+        Run-Installs $selected $doChrome $doVLC
+        $b4.Text = "4. INSTALL APPS"; $b4.Enabled = $true
     }
-
-    $checkboxes = @{}
-    $yPos = 40
-    foreach ($appName in $appDefinitions.Keys) {
-        $cb = New-Object Windows.Forms.CheckBox
-        $cb.Text = $appName
-        $cb.Location = "20,$yPos"
-        $cb.Size = "280,24"
-        $cb.ForeColor = "White"
-        $cb.Font = New-Object Drawing.Font("Segoe UI", 9)
-        $cb.Checked = $true   # default all ticked
-        $AppForm.Controls.Add($cb)
-        $checkboxes[$appName] = $cb
-        $yPos += 28
-    }
-
-    # Select All / None toggles
-    $btnSelAll = New-Object Windows.Forms.Button
-    $btnSelAll.Text = "Select All"
-    $btnSelAll.Location = "20,$yPos"
-    $btnSelAll.Size = "130,28"
-    $btnSelAll.FlatStyle = "Flat"
-    $btnSelAll.ForeColor = "White"
-    $btnSelAll.BackColor = [Drawing.Color]::FromArgb(60,60,60)
-    $btnSelAll.Add_Click({ foreach ($cb in $checkboxes.Values) { $cb.Checked = $true } })
-    $AppForm.Controls.Add($btnSelAll)
-
-    $btnSelNone = New-Object Windows.Forms.Button
-    $btnSelNone.Text = "Select None"
-    $btnSelNone.Location = "160,$yPos"
-    $btnSelNone.Size = "130,28"
-    $btnSelNone.FlatStyle = "Flat"
-    $btnSelNone.ForeColor = "White"
-    $btnSelNone.BackColor = [Drawing.Color]::FromArgb(60,60,60)
-    $btnSelNone.Add_Click({ foreach ($cb in $checkboxes.Values) { $cb.Checked = $false } })
-    $AppForm.Controls.Add($btnSelNone)
-
-    $yPos += 38
-
-    # Install Selected button
-    $btnInstall = New-Object Windows.Forms.Button
-    $btnInstall.Text = "⬇ INSTALL SELECTED"
-    $btnInstall.Location = "20,$yPos"
-    $btnInstall.Size = "270,38"
-    $btnInstall.FlatStyle = "Flat"
-    $btnInstall.ForeColor = "White"
-    $btnInstall.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5cb85c")
-    $btnInstall.Font = New-Object Drawing.Font("Segoe UI", 10, [Drawing.FontStyle]::Bold)
-    $btnInstall.Add_Click({
-        $selected = @()
-        foreach ($appName in $checkboxes.Keys) {
-            if ($checkboxes[$appName].Checked) {
-                $selected += $appDefinitions[$appName]
-            }
-        }
-        if ($selected.Count -eq 0) {
-            [Windows.Forms.MessageBox]::Show("No apps selected!", "Nothing to do")
-            return
-        }
-        $AppForm.Close()
-        Run-Installs $selected
-        $b4.Text = "4. INSTALL APPS"
-        $b4.Enabled = $true
-    })
-    $AppForm.Controls.Add($btnInstall)
-
-    $AppForm.Size = "340,$($yPos + 100)"
-    $AppForm.ShowDialog()
 })
 
 # ============================================================
-# BUTTON 5 - DOMAIN TOOLS
-# ============================================================
-$b5.Add_Click({
-    [System.Media.SystemSounds]::Asterisk.Play()
-    Write-ToUI "Opening Domain Tools..." "Cyan"
-
-    $DomainForm = New-Object Windows.Forms.Form
-    $DomainForm.Text = "Domain Manager"
-    $DomainForm.Size = "360,230"
-    $DomainForm.StartPosition = "CenterParent"
-    $DomainForm.BackColor = [Drawing.Color]::FromArgb(30, 30, 30)
-    $DomainForm.FormBorderStyle = "FixedDialog"
-
-    $lbl = New-Object Windows.Forms.Label
-    $lbl.Text = "Domain Name:"
-    $lbl.Location = "20,20"
-    $lbl.Size = "300,20"
-    $lbl.ForeColor = "White"
-
-    $txt = New-Object Windows.Forms.TextBox
-    $txt.Location = "20,45"
-    $txt.Size = "300,25"
-
-    $joinBtn = New-Object Windows.Forms.Button
-    $joinBtn.Text = "Join Domain (will reboot)"
-    $joinBtn.Location = "20,85"
-    $joinBtn.Size = "300,38"
-    $joinBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#5cb85c")
-    $joinBtn.ForeColor = "White"
-    $joinBtn.FlatStyle = "Flat"
-    $joinBtn.Add_Click({
-        if ([string]::IsNullOrWhiteSpace($txt.Text)) {
-            [System.Media.SystemSounds]::Hand.Play()
-            [Windows.Forms.MessageBox]::Show("Enter a domain name first!", "Error")
-            return
-        }
-        $confirm = [Windows.Forms.MessageBox]::Show("Join '$($txt.Text)' and reboot?", "Confirm", "YesNo")
-        if ($confirm -eq "Yes") {
-            try { Add-Computer -DomainName $txt.Text -Restart -ErrorAction Stop }
-            catch { [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)") }
-        }
-    })
-
-    $leaveBtn = New-Object Windows.Forms.Button
-    $leaveBtn.Text = "Leave Domain (back to WORKGROUP)"
-    $leaveBtn.Location = "20,133"
-    $leaveBtn.Size = "300,38"
-    $leaveBtn.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#d9534f")
-    $leaveBtn.ForeColor = "White"
-    $leaveBtn.FlatStyle = "Flat"
-    $leaveBtn.Add_Click({
-        $confirm = [Windows.Forms.MessageBox]::Show("Leave domain and reboot?", "Confirm", "YesNo")
-        if ($confirm -eq "Yes") { Remove-Computer -WorkgroupName "WORKGROUP" -Force -Restart }
-    })
-
-    $DomainForm.Controls.AddRange(@($lbl, $txt, $joinBtn, $leaveBtn))
-    $DomainForm.ShowDialog()
-})
-
-# ============================================================
-# RUN ALL BUTTON
+# RUN ALL — shows app picker first, then runs everything
 # ============================================================
 $bAll.Add_Click({
     $confirm = [Windows.Forms.MessageBox]::Show(
-        "This will run ALL tasks in order:`n`n  • Remove MS Bloat`n  • Privacy & Telemetry`n  • Install ALL apps`n`nThis will take several minutes. Continue?",
-        "Run All - Confirm",
-        "YesNo"
+        "This will run ALL tasks:`n`n  • Remove MS Bloat`n  • Privacy & Telemetry`n  • Install selected apps`n`nYou'll choose apps on the next screen.",
+        "Run All - Confirm", "YesNo"
     )
     if ($confirm -ne "Yes") { return }
 
     [System.Media.SystemSounds]::Asterisk.Play()
-    $bAll.Enabled = $false
-    $bAll.Text = "⚡ RUNNING ALL..."
-    $b1.Enabled = $false
-    $b2.Enabled = $false
-    $b3.Enabled = $false
-    $b4.Enabled = $false
-    $b5.Enabled = $false
 
-    Write-ToUI "=== RUN ALL STARTED ===" "Yellow"
+    # Show app picker — work only starts after it closes
+    Show-AppPicker {
+        param($selected, $doChrome, $doVLC)
 
-    Run-Debloat
-    Run-Privacy
+        foreach ($btn in @($bAll,$b1,$b2,$b3,$b4)) { $btn.Enabled = $false }
+        $bAll.Text = "⚡ RUNNING ALL..."
 
-    # Install all apps automatically (no submenu for Run All)
-    $allApps = @(
-        "Google.Chrome",
-        "Google.GoogleDrive",
-        "Mozilla.Firefox",
-        "VideoLAN.VLC",
-        "Adobe.Acrobat.Reader.64-bit",
-        "Zoom.Zoom"
-    )
-    Run-Installs $allApps
+        Write-ToUI "=== RUN ALL STARTED ===" "Yellow"
+        Run-Debloat
+        Run-Privacy
+        Run-Installs $selected $doChrome $doVLC
 
-    Write-ToUI "=== RUN ALL COMPLETE! PLEASE RESTART ===" "Yellow"
-    [System.Media.SystemSounds]::Exclamation.Play()
-    [Windows.Forms.MessageBox]::Show("All tasks complete!`n`nA restart is recommended.", "Done!")
+        Write-ToUI "=== RUN ALL COMPLETE! PLEASE RESTART ===" "Yellow"
+        [System.Media.SystemSounds]::Exclamation.Play()
+        [Windows.Forms.MessageBox]::Show("All tasks complete!`n`nA restart is recommended.", "Done!")
+        Refresh-SystemInfo
 
-    Refresh-SystemInfo
-
-    $bAll.Text = "⚡ RUN ALL (Bloat + Privacy + Apps)"
-    $bAll.Enabled = $true
-    $b1.Enabled = $true
-    $b2.Enabled = $true
-    $b3.Enabled = $true
-    $b4.Enabled = $true
-    $b5.Enabled = $true
+        $bAll.Text = "⚡ RUN ALL (Bloat + Privacy + Apps)"
+        foreach ($btn in @($bAll,$b1,$b2,$b3,$b4)) { $btn.Enabled = $true }
+    }
 })
 
 # ============================================================
-# CLOSE BUTTON
+# CLOSE
 # ============================================================
 $ExitBtn = New-Object Windows.Forms.Button
 $ExitBtn.Text = "CLOSE"
-$ExitBtn.Location = "10,715"
+$ExitBtn.Location = "10,690"
 $ExitBtn.Size = "415,38"
 $ExitBtn.FlatStyle = "Flat"
 $ExitBtn.BackColor = [Drawing.Color]::FromArgb(60,60,60)
