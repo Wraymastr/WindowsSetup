@@ -62,7 +62,7 @@ function New-SectionLbl($text, $y) {
 # MAIN WINDOW  — 500 wide x 660 tall (more square, smaller)
 # ============================================================
 $Form = New-Object Windows.Forms.Form
-$Form.Text = "Power Tools — Teacher Setup"
+$Form.Text = "Windows Setup Utility"
 $Form.Size = "500,660"
 $Form.MinimumSize = "500,560"
 $Form.StartPosition = "CenterScreen"
@@ -80,17 +80,18 @@ $InfoPanel.BackColor = $bgPanel
 $InfoPanel.BorderStyle = "FixedSingle"
 $Form.Controls.Add($InfoPanel)
 
-$rowY = @(8,24,40,56,72)
-$keys = @("COMPUTER :","USER     :","WINDOWS  :","DOMAIN   :","UPTIME   :")
+$rowY = @(8,24,40,56,72,88)
+$keys = @("COMPUTER :","USER     :","WINDOWS  :","DOMAIN   :","NETWORK  :","UPTIME   :")
 $keyLbls = @(); $valLbls = @()
-for ($i=0; $i -lt 5; $i++) {
+for ($i=0; $i -lt 6; $i++) {
     $kl = New-Lbl $InfoPanel $keys[$i] 8 $rowY[$i] 82 16 $txtMuted 8
     $vl = New-Lbl $InfoPanel "" 92 $rowY[$i] 355 16 $txtLink 8
     $vl.Cursor = [Windows.Forms.Cursors]::Hand
     $keyLbls += $kl; $valLbls += $vl
 }
 $lblComputer=$valLbls[0]; $lblUser=$valLbls[1]
-$lblWindows=$valLbls[2];  $lblDomain=$valLbls[3]; $lblUptime=$valLbls[4]
+$lblWindows=$valLbls[2];  $lblDomain=$valLbls[3]
+$lblNetwork=$valLbls[4];  $lblUptime=$valLbls[5]
 
 $RefBtn = New-Object Windows.Forms.Button
 $RefBtn.Text="Refresh"; $RefBtn.Location="390,85"; $RefBtn.Size="68,16"
@@ -104,14 +105,17 @@ function Make-Clickable($lbl) {
     $lbl.Add_MouseLeave({ $lbl.ForeColor=$txtLink;    $lbl.Font=New-Object Drawing.Font("Consolas",8) })
 }
 Make-Clickable $lblComputer; Make-Clickable $lblUser
-Make-Clickable $lblWindows;  Make-Clickable $lblDomain; Make-Clickable $lblUptime
+Make-Clickable $lblWindows;  Make-Clickable $lblDomain
+Make-Clickable $lblNetwork;  Make-Clickable $lblUptime
 
 function Refresh-SystemInfo {
     $cs = Get-CimInstance Win32_ComputerSystem
     $os = Get-CimInstance Win32_OperatingSystem
+
     $lblComputer.Text = $cs.Name
     $lblUser.Text     = $env:USERNAME
     $lblWindows.Text  = "$($os.Caption) (Build $($os.BuildNumber))"
+
     if ($cs.PartOfDomain) {
         $lblDomain.Text     = "DOMAIN: $($cs.Domain)"
         $lblDomain.ForeColor= [Drawing.Color]::FromArgb(112,184,168)
@@ -119,6 +123,24 @@ function Refresh-SystemInfo {
         $lblDomain.Text     = "WORKGROUP: $($cs.Workgroup)"
         $lblDomain.ForeColor= [Drawing.Color]::FromArgb(200,148,58)
     }
+
+    # Network info — grab first non-loopback IPv4
+    # Inside Refresh-SystemInfo — replace the network section:
+    $adapters = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.*" }
+
+    if ($adapters) {
+        $online = Test-Connection -ComputerName "1.1.1.1" -Count 1 -Quiet -ErrorAction SilentlyContinue
+        $onlineStr = if ($online) { "  [ONLINE]" } else { "  [NO INTERNET]" }
+        # Show all adapter IPs joined together
+        $ipList = ($adapters | ForEach-Object { $_.IPAddress }) -join "  /  "
+        $lblNetwork.Text      = "$ipList$onlineStr"
+        $lblNetwork.ForeColor = if ($online) { [Drawing.Color]::FromArgb(112,184,168) } else { [Drawing.Color]::FromArgb(200,112,112) }
+    } else {
+        $lblNetwork.Text      = "No network adapter found"
+        $lblNetwork.ForeColor = [Drawing.Color]::FromArgb(200,112,112)
+    }
+
     $up = (Get-Date) - $os.LastBootUpTime
     $lblUptime.Text = "$([int]$up.TotalHours)h $($up.Minutes)m since last boot"
 }
@@ -267,7 +289,77 @@ $lblDomain.Add_Click({
     $F.Controls.AddRange(@()) # already added via New-SubBtn
     $F.ShowDialog(); Refresh-SystemInfo
 })
+# ============================================================
+# CLICK: NETWORK -> REFRESH SYSTEM INFO
+# ============================================================
+$lblNetwork.Add_Click({
+    $F = New-SubForm "Network Details" 400 100
 
+    $adapters = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.*" }
+    $dns = (Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.ServerAddresses } |
+            Select-Object -First 1).ServerAddresses -join "  /  "
+    $gw  = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+            Select-Object -First 1).NextHop
+    $online = Test-Connection -ComputerName "1.1.1.1" -Count 1 -Quiet -ErrorAction SilentlyContinue
+
+    # Status banner
+    $banner = New-Object Windows.Forms.Panel
+    $banner.Location="0,0"; $banner.Size="400,36"; $banner.BorderStyle="None"
+    $banner.BackColor = if($online){[Drawing.Color]::FromArgb(30,42,38)}else{[Drawing.Color]::FromArgb(42,28,28)}
+    $F.Controls.Add($banner)
+
+    $bannerLbl = New-Object Windows.Forms.Label
+    $bannerLbl.Text = if($online){"  INTERNET CONNECTED"}else{"  NO INTERNET ACCESS"}
+    $bannerLbl.Location="0,0"; $bannerLbl.Size="400,36"
+    $bannerLbl.ForeColor = if($online){[Drawing.Color]::FromArgb(112,184,168)}else{[Drawing.Color]::FromArgb(200,112,112)}
+    $bannerLbl.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
+    $bannerLbl.TextAlign="MiddleLeft"; $bannerLbl.BackColor=[Drawing.Color]::Transparent
+    $banner.Controls.Add($bannerLbl)
+
+    $script:ry = 52
+
+    function Net-Row($key, $val) {
+        $kl=New-Object Windows.Forms.Label
+        $kl.Text=$key; $kl.Location="16,$($script:ry)"; $kl.Size="90,18"
+        $kl.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
+        $kl.Font=New-Object Drawing.Font("Consolas",8)
+        $kl.BackColor=[Drawing.Color]::Transparent
+        $F.Controls.Add($kl)
+
+        $vl=New-Object Windows.Forms.Label
+        $vl.Text=$val; $vl.Location="110,$($script:ry)"; $vl.Size="270,18"
+        $vl.ForeColor=[Drawing.Color]::FromArgb(200,200,212)
+        $vl.Font=New-Object Drawing.Font("Consolas",8)
+        $vl.BackColor=[Drawing.Color]::Transparent
+        $F.Controls.Add($vl)
+
+        $div=New-Object Windows.Forms.Label
+        $div.Location="16,$($script:ry+20)"; $div.Size="368,1"
+        $div.BackColor=[Drawing.Color]::FromArgb(42,42,53)
+        $F.Controls.Add($div)
+
+        $script:ry += 28
+    }
+
+    # One row per adapter
+    foreach ($a in $adapters) {
+        Net-Row "ADAPTER :" $a.InterfaceAlias
+        Net-Row "IP ADDR :" "$($a.IPAddress) / $($a.PrefixLength)"
+    }
+
+    Net-Row "GATEWAY :" $(if($gw){$gw}else{"n/a"})
+    Net-Row "DNS     :" $(if($dns){$dns}else{"n/a"})
+    #DEFAULT SIZE
+    $F.Size="400,$($script:ry + 82)"
+
+    $btnClose = New-SubBtn $F "Close" 16 $($script:ry+8) 100 30 $btnDim
+    $btnClose.Add_Click({$F.Close()})
+    #sizable
+    $F.FormBorderStyle = "Sizable"
+    $F.ShowDialog()
+})
 # ============================================================
 # CLICK: UPTIME -> POWER OPTIONS
 # ============================================================
@@ -285,13 +377,13 @@ $lblUptime.Add_Click({
 # OUTPUT CONSOLE
 # ============================================================
 $consLbl = New-Object Windows.Forms.Label
-$consLbl.Text="OUTPUT LOG"; $consLbl.Location="12,378"; $consLbl.Size="200,13"
+$consLbl.Text="OUTPUT LOG"; $consLbl.Location="12,388"; $consLbl.Size="200,13"
 $consLbl.ForeColor=$txtMuted; $consLbl.BackColor=[Drawing.Color]::Transparent
 $consLbl.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold)
 $Form.Controls.Add($consLbl)
 
 $ConsoleOutput = New-Object Windows.Forms.RichTextBox
-$ConsoleOutput.Location="10,393"; $ConsoleOutput.Size="470,218"
+$ConsoleOutput.Location="10,410"; $ConsoleOutput.Size="470,218"
 $ConsoleOutput.BackColor=$bgConsole; $ConsoleOutput.ForeColor=$txtConsole
 $ConsoleOutput.ReadOnly=$true; $ConsoleOutput.BorderStyle="None"
 $ConsoleOutput.Font=New-Object Drawing.Font("Consolas",8)
@@ -306,7 +398,89 @@ function Write-ToUI($msg, $col="Lime") {
     $ConsoleOutput.ScrollToCaret()
     $Form.Refresh()
 }
+# ============================================================
+# STARTUP BANNER — edit the $bannerLines array to customise
+# ============================================================
+$bannerLines = @(
+    " ",
+    "  ╔══════════════════════════════════════╗",
+    "  ║     Laptop SETUP UTILITY  v2.0       ║",
+    "  ║     Vibed together by Kyran Wray     ║",
+    "  ╚══════════════════════════════════════╝",
+    " ",
 
+    " ",
+    # -------------------------------------------------------
+    # Changelogs
+    # -------------------------------------------------------
+    "  CHANGELOG",
+    "  ─────────────────────────────────────────────────────",
+    "  v2.0  —  $(Get-Date -Format 'dd MMM yyyy')",
+    "  ",
+    "  + Defang Windows combines bloat removal, MS junk,",
+    "    essential tweaks and privacy settings in one shot",
+    "  + Accounts button — create local users without",
+    "    touching Control Panel",
+    "  + App picker now scrollable with fixed bottom bar",
+    "    so Install button is always visible",
+    "  + Update All Apps added to the install window",
+    "  + Network row in info panel — shows all adapters,",
+    "    IP addresses and live internet status",
+    "  + Clicking Network opens a themed details popup",
+    "  + Task View button and Widgets disabled in tweaks",
+    "  + O&O ShutUp10 added to optional apps",
+    "  + Startup banner with scrolling changelog  <-- you are here",
+    "  + Closing app picker without selecting no longer",
+    "    locks the Install Apps button",
+    "  ",
+    "  ─────────────────────────────────────────────────────",
+    "  QUICK REFERENCE",
+    "  ─────────────────────────────────────────────────────",
+    "  > Click COMPUTER to rename this machine",
+    "  > Click USER to change the current password",
+    "  > Click WINDOWS to enter a product key",
+    "  > Click DOMAIN to join or leave a domain",
+    "  > Click NETWORK to see full adapter details",
+    "  > Click UPTIME to restart or shut down",
+    "  ",
+    "  > RUN ALL       —  full first-time setup from scratch",
+    "  > DEFANG        —  strip bloat, junk and apply tweaks",
+    "  > HP CLEANUP    —  remove HP bloatware and Wolf Security",
+    "  > INSTALL APPS  —  pick exactly what gets installed",
+    "  > ACCOUNTS      —  create local admin or standard users",
+    "  ",
+    "  ─────────────────────────────────────────────────────",
+    "  Waiting for your command...",
+    " "
+    # -------------------------------------------------------
+)
+
+# Scroll each line in with a short delay so it feels alive
+$bannerTimer = New-Object Windows.Forms.Timer
+$bannerTimer.Interval = 18   # ms between lines — lower = faster scroll
+$bannerIndex = 0
+$bannerTimer.Add_Tick({
+    if($bannerIndex -lt $bannerLines.Count) {
+        $line = $bannerLines[$bannerIndex]
+        # Colour the ASCII art differently from the rest
+        if($bannerIndex -ge 1 -and $bannerIndex -le 6) {
+            Write-ToUI $line "Cyan"
+        } elseif($line -match "^  >") {
+            Write-ToUI $line "Yellow"
+        } elseif($line -match "^  Tip:") {
+            Write-ToUI $line "Orange"
+        } elseif($line -match "Waiting") {
+            Write-ToUI $line "Lime"
+        } else {
+            Write-ToUI $line "Gray"
+        }
+        $script:bannerIndex++
+    } else {
+        $bannerTimer.Stop()
+    }
+})
+$script:bannerIndex = 0
+$bannerTimer.Start()
 # ============================================================
 # MAIN BUTTONS
 # ============================================================
@@ -314,29 +488,22 @@ New-SectionLbl "" 120   # spacer
 
 $bAll = New-Object Windows.Forms.Button
 $bAll.Text="  RUN ALL — Full Teacher Setup"
-$bAll.Location="10,126"; $bAll.Size="470,38"
+$bAll.Location="10,144"; $bAll.Size="470,38"
 $bAll.FlatStyle="Flat"; $bAll.ForeColor=$btnRun[1]; $bAll.BackColor=$btnRun[0]
 $bAll.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
 $bAll.FlatAppearance.BorderColor=$border; $bAll.FlatAppearance.BorderSize=1
 $bAll.TextAlign="MiddleLeft"; $bAll.Padding=New-Object Windows.Forms.Padding(10,0,0,0)
 $Form.Controls.Add($bAll)
 
-New-SectionLbl "SYSTEM CLEANUP" 172
-$b1 = New-Btn $Form "  Remove MS Bloat"  10 186 470 36 $btnRed
-$b2 = New-Btn $Form "  HP Cleanup"       10 228 470 36 $btnAmb
+New-SectionLbl "SYSTEM CLEANUP" 190
+$b1 = New-Btn $Form "  Defang Windows  (Bloat + Junk + Tweaks)" 10 204 470 36 $btnRed
 
-New-SectionLbl "CONFIGURATION" 272
-$b3 = New-Btn $Form "  Essential Tweaks" 10 286 470 36 $btnTeal
-$b4 = New-Btn $Form "  Install Apps"     10 328 470 36 $btnBlue
+New-SectionLbl "CONFIGURATION" 248
+$b2 = New-Btn $Form "  HP Cleanup"   10 262 470 36 $btnAmb
+$b3 = New-Btn $Form "  Install Apps" 10 304 470 36 $btnBlue
+$b4 = New-Btn $Form "  Accounts"     10 346 470 36 $btnRun
 
-$ExitBtn = New-Object Windows.Forms.Button
-$ExitBtn.Text="CLOSE"; $ExitBtn.Location="10,620"; $ExitBtn.Size="470,24"
-$ExitBtn.FlatStyle="Flat"; $ExitBtn.ForeColor=$txtMuted; $ExitBtn.BackColor=$bgPanel
-$ExitBtn.Font=New-Object Drawing.Font("Segoe UI",8)
-$ExitBtn.FlatAppearance.BorderColor=$border; $ExitBtn.FlatAppearance.BorderSize=1
-$ExitBtn.Anchor="Bottom,Left,Right"
-$ExitBtn.Add_Click({$Form.Close()})
-$Form.Controls.Add($ExitBtn)
+$ExitBtn.Location="10,638"   # was 620, pushed down
 
 # ============================================================
 # LOGIC FUNCTIONS
@@ -371,6 +538,8 @@ function Run-Debloat {
 
 function Run-EssentialTweaks {
     Write-ToUI "Applying essential tweaks..." "Cyan"
+
+    # Privacy & telemetry
     Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0 -ErrorAction SilentlyContinue
     Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
     $ads="HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
@@ -390,9 +559,11 @@ function Run-EssentialTweaks {
     Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd"   17 -ErrorAction SilentlyContinue
     Write-ToUI "Privacy and performance done."
 
+    # Show file extensions
     Write-ToUI "Showing file extensions..."
     Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt" 0 -ErrorAction SilentlyContinue
 
+    # Disable startup programs
     Write-ToUI "Clearing startup programs..."
     @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
       "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run") | ForEach-Object {
@@ -404,12 +575,29 @@ function Run-EssentialTweaks {
             }
     }
 
+    # Disable Task View button on taskbar
+    Write-ToUI "Hiding Task View button..."
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+        -Name "ShowTaskViewButton" -Value 0 -ErrorAction SilentlyContinue
+
+    # Disable Widgets (Win11 — both the policy key and the taskbar toggle)
+    Write-ToUI "Disabling Widgets..."
+    $widgetPolicy="HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
+    if(-not(Test-Path $widgetPolicy)){New-Item -Path $widgetPolicy -Force | Out-Null}
+    Set-ItemProperty -Path $widgetPolicy -Name "AllowNewsAndInterests" -Value 0 -ErrorAction SilentlyContinue
+    # Taskbar toggle (Win11 22H2+)
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
+        -Name "TaskbarDa" -Value 0 -ErrorAction SilentlyContinue
+
+    # Windows 10 right-click menu
     Write-ToUI "Restoring Win10 right-click menu..."
     $rc="HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
     if(-not(Test-Path $rc)){New-Item -Path $rc -Force | Out-Null}
     Set-ItemProperty -Path $rc -Name "(default)" -Value "" -ErrorAction SilentlyContinue
     Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2; Start-Process "explorer.exe"
+    Write-ToUI "Explorer restarted."
+
     Write-ToUI "All essential tweaks complete!" "Lime"
 }
 
@@ -448,6 +636,21 @@ function Run-Installs($AppList, $DoChrome, $DoVLC) {
         winget settings --enable bypasscertificatepinningformicrosoftstore
         Start-Sleep -Seconds 2
         foreach($id in $AppList) {
+            # ShutUp10 has no winget ID — download and launch directly
+            if($id -eq "OOSU10") {
+                Write-ToUI "Downloading O&O ShutUp10..."
+                $dest="$env:TEMP\OOSU10.exe"
+                try {
+                    Invoke-WebRequest -Uri "https://dl5.oo-software.com/files/ooshutup10/OOSU10.exe" `
+                        -OutFile $dest -UseBasicParsing -ErrorAction Stop
+                    Write-ToUI "Launching ShutUp10 — configure and close it to continue." "Yellow"
+                    Start-Process $dest -Wait
+                    Write-ToUI "ShutUp10 closed." "Lime"
+                } catch {
+                    Write-ToUI "ShutUp10 download failed — grab it manually from oo-software.com" "Orange"
+                }
+                continue
+            }
             Write-ToUI "Installing $id..."
             winget install --id $id -e --accept-source-agreements --accept-package-agreements --silent
             Write-ToUI "  Done: $id" "Lime"
@@ -462,16 +665,36 @@ function Run-Installs($AppList, $DoChrome, $DoVLC) {
 # APP PICKER — closes BEFORE running, every time
 # ============================================================
 function Show-AppPicker($RunAfter) {
-    # Capture results in script-scope vars then close, THEN invoke callback
-    $script:pickerSelected = @()
-    $script:pickerChrome   = $false
-    $script:pickerVLC      = $false
-    $script:pickerConfirmed= $false
+    $script:pickerSelected  = @()
+    $script:pickerChrome    = $false
+    $script:pickerVLC       = $false
+    $script:pickerConfirmed = $false
 
     $AF = New-Object Windows.Forms.Form
     $AF.Text="Select Apps to Install"; $AF.StartPosition="CenterParent"
     $AF.BackColor=$bgSubForm; $AF.ForeColor=$txtPrimary
-    $AF.FormBorderStyle="FixedDialog"; $AF.MaximizeBox=$false; $AF.MinimizeBox=$false
+    $AF.FormBorderStyle="Sizable"; $AF.MaximizeBox=$false; $AF.MinimizeBox=$false
+    $AF.MinimumSize="410,500"
+    $AF.Size="410,660"   
+
+    # Scrollable panel fills window, leaving room for bottom bar
+    $scroll = New-Object Windows.Forms.Panel
+    $scroll.Location="0,0"; $scroll.Size="410,490"
+    $scroll.AutoScroll=$true; $scroll.BackColor=$bgSubForm
+    $scroll.Anchor="Top,Left,Right,Bottom"
+    $AF.Controls.Add($scroll)
+
+    # Resize handler — keep scroll panel and bottom bar snapped correctly
+    $AF.Add_Resize({
+        $scroll.Size="$($AF.ClientSize.Width),$($AF.ClientSize.Height - 128)"
+        $bar.Location="0,$($AF.ClientSize.Height - 128)"
+        $bar.Size="$($AF.ClientSize.Width),128"
+        $bSA.Size="$(($AF.ClientSize.Width/2)-16),28"
+        $bSN.Location="$(($AF.ClientSize.Width/2)+6),8"
+        $bSN.Size="$(($AF.ClientSize.Width/2)-16),28"
+        $bGo.Size="$($AF.ClientSize.Width-20),38"
+        $bUpd.Size="$($AF.ClientSize.Width-20),34"
+    })
 
     $script:ay = 10
     $cbs = [ordered]@{}
@@ -481,7 +704,7 @@ function Show-AppPicker($RunAfter) {
         $s.Text=$title; $s.Location="14,$($script:ay)"; $s.Size="370,14"
         $s.ForeColor=$txtMuted; $s.BackColor=[Drawing.Color]::Transparent
         $s.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold)
-        $AF.Controls.Add($s); $script:ay+=18
+        $scroll.Controls.Add($s); $script:ay+=18
     }
 
     function AP-Check($label,$id,$on) {
@@ -489,7 +712,7 @@ function Show-AppPicker($RunAfter) {
         $cb.Text=$label; $cb.Location="18,$($script:ay)"; $cb.Size="360,20"
         $cb.ForeColor=$txtPrimary; $cb.BackColor=[Drawing.Color]::Transparent
         $cb.Font=New-Object Drawing.Font("Segoe UI",9); $cb.Checked=$on
-        $AF.Controls.Add($cb); $script:ay+=22; $cbs[$id]=$cb
+        $scroll.Controls.Add($cb); $script:ay+=22; $cbs[$id]=$cb
     }
 
     # -------------------------------------------------------
@@ -515,7 +738,7 @@ function Show-AppPicker($RunAfter) {
     AP-Check "HP Support Assistant"        "HP.HPSupportAssistant"           $false
     AP-Check "Malwarebytes"                "Malwarebytes.Malwarebytes"       $false
     AP-Check "Winaero Tweaker"             "WinAero.WinaeroTweaker"          $false
-    # ShutUp10 has no winget ID — download from https://www.oo-software.com/shutup10
+    AP-Check "O&O ShutUp10  (privacy)"     "OOSU10"                          $false
 
     $script:ay += 8
     AP-Section "SET AS DEFAULT"
@@ -524,32 +747,46 @@ function Show-AppPicker($RunAfter) {
     $cbCD.Location="18,$($script:ay)"; $cbCD.Size="360,20"
     $cbCD.ForeColor=$txtPrimary; $cbCD.BackColor=[Drawing.Color]::Transparent
     $cbCD.Font=New-Object Drawing.Font("Segoe UI",9); $cbCD.Checked=$true
-    $AF.Controls.Add($cbCD); $script:ay+=22
+    $scroll.Controls.Add($cbCD); $script:ay+=22
 
     $cbVD=New-Object Windows.Forms.CheckBox; $cbVD.Text="Set VLC as default media player"
     $cbVD.Location="18,$($script:ay)"; $cbVD.Size="360,20"
     $cbVD.ForeColor=$txtPrimary; $cbVD.BackColor=[Drawing.Color]::Transparent
     $cbVD.Font=New-Object Drawing.Font("Segoe UI",9); $cbVD.Checked=$true
-    $AF.Controls.Add($cbVD); $script:ay+=30
+    $scroll.Controls.Add($cbVD); $script:ay+=30
 
-    # Select All / None row
+    # Padding so last checkbox isn't clipped by scroll panel
+    $pad=New-Object Windows.Forms.Label; $pad.Size="10,20"
+    $pad.Location="0,$($script:ay)"; $scroll.Controls.Add($pad)
+
+    # ---- Bottom bar — always visible ----
+    $bar = New-Object Windows.Forms.Panel
+    $bar.Location="0,490"; $bar.Size="410,128"
+    $bar.BackColor=[Drawing.Color]::FromArgb(22,22,27)
+    $bar.Anchor="Bottom,Left,Right"
+    $AF.Controls.Add($bar)
+
+    $line=New-Object Windows.Forms.Label
+    $line.Location="0,0"; $line.Size="410,1"
+    $line.BackColor=[Drawing.Color]::FromArgb(42,42,53)
+    $bar.Controls.Add($line)
+
     $bSA=New-Object Windows.Forms.Button; $bSA.Text="Select All"
-    $bSA.Location="14,$($script:ay)"; $bSA.Size="176,28"
+    $bSA.Location="10,8"; $bSA.Size="178,28"
     $bSA.FlatStyle="Flat"; $bSA.ForeColor=$txtPrimary; $bSA.BackColor=$bgPanel
     $bSA.FlatAppearance.BorderColor=$border; $bSA.FlatAppearance.BorderSize=1
     $bSA.Add_Click({foreach($c in $cbs.Values){$c.Checked=$true};$cbCD.Checked=$true;$cbVD.Checked=$true})
-    $AF.Controls.Add($bSA)
+    $bar.Controls.Add($bSA)
 
     $bSN=New-Object Windows.Forms.Button; $bSN.Text="Select None"
-    $bSN.Location="198,$($script:ay)"; $bSN.Size="176,28"
+    $bSN.Location="196,8"; $bSN.Size="178,28"
     $bSN.FlatStyle="Flat"; $bSN.ForeColor=$txtPrimary; $bSN.BackColor=$bgPanel
     $bSN.FlatAppearance.BorderColor=$border; $bSN.FlatAppearance.BorderSize=1
     $bSN.Add_Click({foreach($c in $cbs.Values){$c.Checked=$false};$cbCD.Checked=$false;$cbVD.Checked=$false})
-    $AF.Controls.Add($bSN); $script:ay+=36
+    $bar.Controls.Add($bSN)
 
-    # GO button
     $bGo=New-Object Windows.Forms.Button; $bGo.Text="  INSTALL SELECTED"
-    $bGo.Location="14,$($script:ay)"; $bGo.Size="360,38"
+    $bGo.Location="10,44"; $bGo.Size="364,38"
     $bGo.FlatStyle="Flat"; $bGo.ForeColor=$btnTeal[1]; $bGo.BackColor=$btnTeal[0]
     $bGo.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
     $bGo.FlatAppearance.BorderColor=$border; $bGo.FlatAppearance.BorderSize=1
@@ -558,34 +795,55 @@ function Show-AppPicker($RunAfter) {
         $sel=@(); foreach($id in $cbs.Keys){if($cbs[$id].Checked){$sel+=$id}}
         if($sel.Count -eq 0 -and -not $cbCD.Checked -and -not $cbVD.Checked){
             [Windows.Forms.MessageBox]::Show("Nothing selected!","Nothing to do"); return}
-        # Store results in script scope then close — this is the fix for the hanging window
         $script:pickerSelected  = $sel
         $script:pickerChrome    = $cbCD.Checked
         $script:pickerVLC       = $cbVD.Checked
         $script:pickerConfirmed = $true
         $AF.Close()
     })
-    $AF.Controls.Add($bGo); $script:ay+=50
+    $bar.Controls.Add($bGo)
+    $bar.Controls.Add($bGo)
 
-    $AF.Size="398,$($script:ay)"
+    # Update All button — sits below Install Selected
+    $bUpd=New-Object Windows.Forms.Button; $bUpd.Text="  Update All Installed Applications"
+    $bUpd.Location="10,86"; $bUpd.Size="364,34"
+    $bUpd.FlatStyle="Flat"
+    $bUpd.ForeColor=[Drawing.Color]::FromArgb(200,148,58)   # amber — cautious action
+    $bUpd.BackColor=[Drawing.Color]::FromArgb(42,35,24)
+    $bUpd.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
+    $bUpd.FlatAppearance.BorderColor=$border; $bUpd.FlatAppearance.BorderSize=1
+    $bUpd.TextAlign="MiddleLeft"; $bUpd.Padding=New-Object Windows.Forms.Padding(10,0,0,0)
+    $bUpd.Add_Click({
+        $script:pickerSelected  = @("__UPDATEALL__")
+        $script:pickerChrome    = $false
+        $script:pickerVLC       = $false
+        $script:pickerConfirmed = $true
+        $AF.Close()
+    })
+    $bar.Controls.Add($bUpd)
+
     $AF.ShowDialog() | Out-Null
 
-    # Now the window is fully gone — THEN run the callback
     if($script:pickerConfirmed) {
         & $RunAfter $script:pickerSelected $script:pickerChrome $script:pickerVLC
+    } else {
+        # User cancelled — restore Install Apps button specifically
+        $b3.Text="  Install Apps"; $b3.Enabled=$true
     }
 }
-
 # ============================================================
 # BUTTON HANDLERS
 # ============================================================
+#DEFANG WINDOWS
 $b1.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
     $b1.Enabled=$false; $b1.Text="  Working..."
     Run-Debloat
-    $b1.Text="  Remove MS Bloat"; $b1.Enabled=$true
+    Run-EssentialTweaks
+    $b1.Text="  Defang Windows  (Bloat + Junk + Tweaks)"; $b1.Enabled=$true
 })
 
+# HP CLEANUP
 $b2.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
     $b2.Enabled=$false; $b2.Text="  Working..."
@@ -604,27 +862,83 @@ $b2.Add_Click({
     Write-ToUI "HP cleanup complete!" "Lime"
     $b2.Text="  HP Cleanup"; $b2.Enabled=$true
 })
-
+#Applications
 $b3.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
     $b3.Enabled=$false; $b3.Text="  Working..."
-    Run-EssentialTweaks
-    $b3.Text="  Essential Tweaks"; $b3.Enabled=$true
-})
-
-$b4.Add_Click({
-    [System.Media.SystemSounds]::Asterisk.Play()
-    $b4.Enabled=$false; $b4.Text="  Working..."
     Show-AppPicker {
         param($sel,$chrome,$vlc)
         Run-Installs $sel $chrome $vlc
-        $b4.Text="  Install Apps"; $b4.Enabled=$true
+        $b3.Text="  Install Apps"; $b3.Enabled=$true
     }
 })
+#Accounts
+$b4.Add_Click({
+    [System.Media.SystemSounds]::Asterisk.Play()
 
+    $F = New-SubForm "Account Manager" 400 340
+    New-SubLbl $F "Create Local Account" 15 12 360 18 $txtMuted 8 | Out-Null
+
+    New-SubLbl $F "Username:" 15 36 360 18 $txtPrimary | Out-Null
+    $tUser = New-SubTxt $F 15 56 360
+
+    New-SubLbl $F "Full Name (optional):" 15 90 360 18 $txtPrimary | Out-Null
+    $tFull = New-SubTxt $F 15 110 360
+
+    New-SubLbl $F "Password:" 15 144 360 18 $txtPrimary | Out-Null
+    $tPass = New-SubTxt $F 15 164 360; $tPass.UseSystemPasswordChar=$true
+
+    New-SubLbl $F "Confirm Password:" 15 198 360 18 $txtPrimary | Out-Null
+    $tConf = New-SubTxt $F 15 218 360; $tConf.UseSystemPasswordChar=$true
+
+    $cbAdmin = New-Object Windows.Forms.CheckBox
+    $cbAdmin.Text="Make this account a local Administrator"
+    $cbAdmin.Location="15,252"; $cbAdmin.Size="360,20"
+    $cbAdmin.ForeColor=$txtPrimary; $cbAdmin.BackColor=[Drawing.Color]::Transparent
+    $cbAdmin.Font=New-Object Drawing.Font("Segoe UI",9); $cbAdmin.Checked=$true
+    $F.Controls.Add($cbAdmin)
+
+    $btnCreate = New-SubBtn $F "Create Account" 15 282 222 34 $btnTeal
+    $btnCancel = New-SubBtn $F "Cancel"          245 282 130 34 $btnDim
+
+    $btnCreate.Add_Click({
+        $uname = $tUser.Text.Trim()
+        $fname = $tFull.Text.Trim()
+        if([string]::IsNullOrWhiteSpace($uname)){
+            [Windows.Forms.MessageBox]::Show("Username cannot be empty.","Error"); return}
+        if($tPass.Text -ne $tConf.Text){
+            [System.Media.SystemSounds]::Hand.Play()
+            [Windows.Forms.MessageBox]::Show("Passwords do not match!","Error"); return}
+        if($tPass.Text.Length -lt 1){
+            [Windows.Forms.MessageBox]::Show("Password cannot be empty.","Error"); return}
+        try {
+            $secPass = ConvertTo-SecureString $tPass.Text -AsPlainText -Force
+            $params = @{ Name=$uname; Password=$secPass; ErrorAction="Stop" }
+            if(-not [string]::IsNullOrWhiteSpace($fname)){ $params.FullName=$fname }
+            New-LocalUser @params | Out-Null
+            if($cbAdmin.Checked){
+                Add-LocalGroupMember -Group "Administrators" -Member $uname -ErrorAction Stop
+                Write-ToUI "Account '$uname' created as local Administrator." "Lime"
+            } else {
+                Add-LocalGroupMember -Group "Users" -Member $uname -ErrorAction Stop
+                Write-ToUI "Account '$uname' created as standard User." "Lime"
+            }
+            [Windows.Forms.MessageBox]::Show(
+                "Account '$uname' created!`nGroup: $(if($cbAdmin.Checked){'Administrators'}else{'Users'})",
+                "Done")
+            $F.Close()
+        } catch {
+            [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)","Error")
+        }
+    })
+    $btnCancel.Add_Click({$F.Close()})
+    $F.ShowDialog()
+})
+
+#Run All
 $bAll.Add_Click({
     if([Windows.Forms.MessageBox]::Show(
-        "Full setup will run:`n`n  Remove MS Bloat`n  Essential Tweaks`n  Install selected apps`n`nChoose apps on the next screen.",
+        "Full setup will run:`n`n  Defang Windows (Bloat + Junk + Tweaks)`n  Install selected apps`n`nChoose apps on the next screen.",
         "Run All","YesNo") -ne "Yes"){return}
     [System.Media.SystemSounds]::Asterisk.Play()
 
