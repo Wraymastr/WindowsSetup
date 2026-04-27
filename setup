@@ -62,7 +62,7 @@ function New-SectionLbl($text, $y) {
 # MAIN WINDOW  — 500 wide x 660 tall (more square, smaller)
 # ============================================================
 $Form = New-Object Windows.Forms.Form
-$Form.Text = "Windows Setup Utility"
+$Form.Text = "NULLIFY WINDOWS"
 $Form.Size = "500,660"
 $Form.MinimumSize = "500,560"
 $Form.StartPosition = "CenterScreen"
@@ -293,26 +293,21 @@ $lblDomain.Add_Click({
 # CLICK: NETWORK -> REFRESH SYSTEM INFO
 # ============================================================
 $lblNetwork.Add_Click({
-    $F = New-SubForm "Network Details" 400 100
+    $F = New-SubForm "Network Details" 480 100
 
     $adapters = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
                 Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.*" }
-    $dns = (Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-            Where-Object { $_.ServerAddresses } |
-            Select-Object -First 1).ServerAddresses -join "  /  "
-    $gw  = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
-            Select-Object -First 1).NextHop
     $online = Test-Connection -ComputerName "1.1.1.1" -Count 1 -Quiet -ErrorAction SilentlyContinue
 
     # Status banner
     $banner = New-Object Windows.Forms.Panel
-    $banner.Location="0,0"; $banner.Size="400,36"; $banner.BorderStyle="None"
+    $banner.Location="0,0"; $banner.Size="480,36"; $banner.BorderStyle="None"
     $banner.BackColor = if($online){[Drawing.Color]::FromArgb(30,42,38)}else{[Drawing.Color]::FromArgb(42,28,28)}
     $F.Controls.Add($banner)
 
     $bannerLbl = New-Object Windows.Forms.Label
     $bannerLbl.Text = if($online){"  INTERNET CONNECTED"}else{"  NO INTERNET ACCESS"}
-    $bannerLbl.Location="0,0"; $bannerLbl.Size="400,36"
+    $bannerLbl.Location="0,0"; $bannerLbl.Size="480,36"
     $bannerLbl.ForeColor = if($online){[Drawing.Color]::FromArgb(112,184,168)}else{[Drawing.Color]::FromArgb(200,112,112)}
     $bannerLbl.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
     $bannerLbl.TextAlign="MiddleLeft"; $bannerLbl.BackColor=[Drawing.Color]::Transparent
@@ -320,44 +315,187 @@ $lblNetwork.Add_Click({
 
     $script:ry = 52
 
-    function Net-Row($key, $val) {
-        $kl=New-Object Windows.Forms.Label
-        $kl.Text=$key; $kl.Location="16,$($script:ry)"; $kl.Size="90,18"
-        $kl.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
-        $kl.Font=New-Object Drawing.Font("Consolas",8)
-        $kl.BackColor=[Drawing.Color]::Transparent
-        $F.Controls.Add($kl)
+    # If no adapters, just show the "open settings" button
+    if(-not $adapters) {
+        $noNet = New-Object Windows.Forms.Label
+        $noNet.Text="No network adapters found"; $noNet.Location="16,52"; $noNet.Size="440,20"
+        $noNet.ForeColor=[Drawing.Color]::FromArgb(200,112,112)
+        $noNet.Font=New-Object Drawing.Font("Segoe UI",9)
+        $F.Controls.Add($noNet)
+        $script:ry = 82
+    } else {
+        # Adapter selector dropdown
+        $adLbl = New-Object Windows.Forms.Label
+        $adLbl.Text="Adapter:"; $adLbl.Location="16,52"; $adLbl.Size="80,20"
+        $adLbl.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
+        $adLbl.Font=New-Object Drawing.Font("Consolas",8)
+        $F.Controls.Add($adLbl)
 
-        $vl=New-Object Windows.Forms.Label
-        $vl.Text=$val; $vl.Location="110,$($script:ry)"; $vl.Size="270,18"
-        $vl.ForeColor=[Drawing.Color]::FromArgb(200,200,212)
-        $vl.Font=New-Object Drawing.Font("Consolas",8)
-        $vl.BackColor=[Drawing.Color]::Transparent
-        $F.Controls.Add($vl)
+        $adCombo = New-Object Windows.Forms.ComboBox
+        $adCombo.Location="100,50"; $adCombo.Size="360,24"
+        $adCombo.DropDownStyle="DropDownList"
+        $adCombo.BackColor=$bgInput; $adCombo.ForeColor=$txtPrimary
+        $adCombo.Font=New-Object Drawing.Font("Consolas",9)
+        foreach($a in $adapters){ $adCombo.Items.Add("$($a.InterfaceAlias)  —  $($a.IPAddress)") | Out-Null }
+        $adCombo.SelectedIndex=0
+        $F.Controls.Add($adCombo)
 
-        $div=New-Object Windows.Forms.Label
-        $div.Location="16,$($script:ry+20)"; $div.Size="368,1"
-        $div.BackColor=[Drawing.Color]::FromArgb(42,42,53)
-        $F.Controls.Add($div)
+        # Editable fields
+        $script:ry = 90
 
-        $script:ry += 28
+        function Net-EditRow($key, $val, $readOnly=$false) {
+            $kl=New-Object Windows.Forms.Label
+            $kl.Text=$key; $kl.Location="16,$($script:ry)"; $kl.Size="80,20"
+            $kl.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
+            $kl.Font=New-Object Drawing.Font("Consolas",8)
+            $F.Controls.Add($kl)
+
+            $tb=New-Object Windows.Forms.TextBox
+            $tb.Location="100,$($script:ry)"; $tb.Size="360,24"
+            $tb.BackColor=$bgInput; $tb.ForeColor=$txtPrimary
+            $tb.Font=New-Object Drawing.Font("Consolas",9)
+            $tb.Text=$val; $tb.ReadOnly=$readOnly
+            $F.Controls.Add($tb)
+
+            $script:ry += 32
+            return $tb
+        }
+
+        # Get current adapter details
+        $curAdapter = $adapters[0]
+        $curIface   = $curAdapter.InterfaceAlias
+        $curIP      = $curAdapter.IPAddress
+        $curPrefix  = $curAdapter.PrefixLength
+
+        $gw  = (Get-NetRoute -InterfaceAlias $curIface -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+                Select-Object -First 1).NextHop
+        $dns = (Get-DnsClientServerAddress -InterfaceAlias $curIface -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses -join ", "
+
+        # Create the editable fields
+        $txtIP      = Net-EditRow "IP Address :" $curIP
+        $txtPrefix  = Net-EditRow "Subnet (/):" $curPrefix
+        $txtGW      = Net-EditRow "Gateway   :" $(if($gw){$gw}else{"n/a"})
+        $txtDNS     = Net-EditRow "DNS       :" $(if($dns){$dns}else{"n/a"})
+
+        # When adapter selection changes, reload the fields
+        $adCombo.Add_SelectedIndexChanged({
+            $selAdapter = $adapters[$adCombo.SelectedIndex]
+            $selIface   = $selAdapter.InterfaceAlias
+            $txtIP.Text     = $selAdapter.IPAddress
+            $txtPrefix.Text = $selAdapter.PrefixLength
+            $gw2  = (Get-NetRoute -InterfaceAlias $selIface -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+                     Select-Object -First 1).NextHop
+            $dns2 = (Get-DnsClientServerAddress -InterfaceAlias $selIface -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses -join ", "
+            $txtGW.Text  = if($gw2){$gw2}else{"n/a"}
+            $txtDNS.Text = if($dns2){$dns2}else{"n/a"}
+        })
+
+        $script:ry += 10
+
+        # Apply Static IP button
+        $btnApply = New-Object Windows.Forms.Button
+        $btnApply.Text="Apply Static IP + DNS"
+        $btnApply.Location="16,$($script:ry)"; $btnApply.Size="190,34"
+        $btnApply.FlatStyle="Flat"; $btnApply.ForeColor=$btnTeal[1]; $btnApply.BackColor=$btnTeal[0]
+        $btnApply.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
+        $btnApply.FlatAppearance.BorderColor=$border; $btnApply.FlatAppearance.BorderSize=1
+        $btnApply.Add_Click({
+            $selAdapter = $adapters[$adCombo.SelectedIndex]
+            $selIface   = $selAdapter.InterfaceAlias
+            $selIfIndex = $selAdapter.InterfaceIndex
+
+            $newIP     = $txtIP.Text.Trim()
+            $newPrefix = $txtPrefix.Text.Trim()
+            $newGW     = $txtGW.Text.Trim()
+            $newDNS    = $txtDNS.Text.Trim() -split "[,\s]+" | Where-Object {$_}
+
+            if([string]::IsNullOrWhiteSpace($newIP) -or [string]::IsNullOrWhiteSpace($newPrefix)){
+                [Windows.Forms.MessageBox]::Show("IP and Subnet cannot be empty.","Error"); return}
+
+            $confirm = [Windows.Forms.MessageBox]::Show(
+                "Apply static IP to $selIface ?`n`nIP: $newIP/$newPrefix`nGW: $newGW`nDNS: $($newDNS -join ', ')",
+                "Confirm Static IP","YesNo")
+            if($confirm -ne "Yes"){return}
+
+            try {
+                Write-ToUI "Setting static IP on $selIface..." "Cyan"
+                # Remove existing IP config
+                Remove-NetIPAddress -InterfaceAlias $selIface -Confirm:$false -ErrorAction SilentlyContinue
+                Remove-NetRoute -InterfaceAlias $selIface -Confirm:$false -ErrorAction SilentlyContinue
+
+                # Apply new IP
+                New-NetIPAddress -InterfaceAlias $selIface -IPAddress $newIP -PrefixLength $newPrefix `
+                    -DefaultGateway $(if($newGW -ne "n/a"){$newGW}else{$null}) -ErrorAction Stop | Out-Null
+
+                # Apply DNS
+                if($newDNS.Count -gt 0){
+                    Set-DnsClientServerAddress -InterfaceAlias $selIface -ServerAddresses $newDNS -ErrorAction Stop
+                }
+
+                Write-ToUI "Static IP applied: $newIP/$newPrefix" "Lime"
+                [Windows.Forms.MessageBox]::Show("Static IP applied successfully!","Done")
+                $F.Close()
+                Refresh-SystemInfo
+
+            } catch {
+                Write-ToUI "Static IP failed: $($_.Exception.Message)" "Orange"
+                [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)","Error")
+            }
+        })
+        $F.Controls.Add($btnApply)
+
+        # DHCP button
+        $btnDHCP = New-Object Windows.Forms.Button
+        $btnDHCP.Text="Switch to DHCP"
+        $btnDHCP.Location="214,$($script:ry)"; $btnDHCP.Size="140,34"
+        $btnDHCP.FlatStyle="Flat"; $btnDHCP.ForeColor=$btnAmb[1]; $btnDHCP.BackColor=$btnAmb[0]
+        $btnDHCP.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
+        $btnDHCP.FlatAppearance.BorderColor=$border; $btnDHCP.FlatAppearance.BorderSize=1
+        $btnDHCP.Add_Click({
+            $selAdapter = $adapters[$adCombo.SelectedIndex]
+            $selIface   = $selAdapter.InterfaceAlias
+
+            $confirm = [Windows.Forms.MessageBox]::Show(
+                "Switch $selIface to DHCP (automatic)?",
+                "Confirm DHCP","YesNo")
+            if($confirm -ne "Yes"){return}
+
+            try {
+                Write-ToUI "Switching $selIface to DHCP..." "Cyan"
+                Set-NetIPInterface -InterfaceAlias $selIface -Dhcp Enabled -ErrorAction Stop
+                Set-DnsClientServerAddress -InterfaceAlias $selIface -ResetServerAddresses -ErrorAction Stop
+                Write-ToUI "$selIface now using DHCP." "Lime"
+                [Windows.Forms.MessageBox]::Show("Switched to DHCP successfully!","Done")
+                $F.Close()
+                Refresh-SystemInfo
+            } catch {
+                Write-ToUI "DHCP switch failed: $($_.Exception.Message)" "Orange"
+                [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)","Error")
+            }
+        })
+        $F.Controls.Add($btnDHCP)
+
+        $script:ry += 42
     }
 
-    # One row per adapter
-    foreach ($a in $adapters) {
-        Net-Row "ADAPTER :" $a.InterfaceAlias
-        Net-Row "IP ADDR :" "$($a.IPAddress) / $($a.PrefixLength)"
-    }
+    # Open Adapter Settings button — always present
+    $btnSettings = New-Object Windows.Forms.Button
+    $btnSettings.Text="Open Network Connections"
+    $btnSettings.Location="16,$($script:ry)"; $btnSettings.Size="210,32"
+    $btnSettings.FlatStyle="Flat"; $btnSettings.ForeColor=$btnBlue[1]; $btnSettings.BackColor=$btnBlue[0]
+    $btnSettings.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
+    $btnSettings.FlatAppearance.BorderColor=$border; $btnSettings.FlatAppearance.BorderSize=1
+    $btnSettings.Add_Click({
+        Start-Process "ncpa.cpl"
+        $F.Close()
+    })
+    $F.Controls.Add($btnSettings)
 
-    Net-Row "GATEWAY :" $(if($gw){$gw}else{"n/a"})
-    Net-Row "DNS     :" $(if($dns){$dns}else{"n/a"})
-    #DEFAULT SIZE
-    $F.Size="400,$($script:ry + 82)"
-
-    $btnClose = New-SubBtn $F "Close" 16 $($script:ry+8) 100 30 $btnDim
+    # Close button
+    $btnClose = New-SubBtn $F "Close" 234 $($script:ry) 90 32 $btnDim
     $btnClose.Add_Click({$F.Close()})
-    #sizable
-    $F.FormBorderStyle = "Sizable"
+
+    $F.Size="480,$($script:ry + 80)"
     $F.ShowDialog()
 })
 # ============================================================
@@ -404,35 +542,17 @@ function Write-ToUI($msg, $col="Lime") {
 $bannerLines = @(
     " ",
     "  ╔══════════════════════════════════════╗",
-    "  ║     Laptop SETUP UTILITY  v2.0       ║",
+    "  ║     Laptop SETUP UTILITY  v1.0       ║",
     "  ║     Vibed together by Kyran Wray     ║",
     "  ╚══════════════════════════════════════╝",
     " ",
 
     " ",
-    # -------------------------------------------------------
-    # Changelogs
-    # -------------------------------------------------------
     "  CHANGELOG",
     "  ─────────────────────────────────────────────────────",
-    "  v2.0  —  $(Get-Date -Format 'dd MMM yyyy')",
+    "  v1.0  —  $(Get-Date -Format 'dd MMM yyyy')",
     "  ",
-    "  + Defang Windows combines bloat removal, MS junk,",
-    "    essential tweaks and privacy settings in one shot",
-    "  + Accounts button — create local users without",
-    "    touching Control Panel",
-    "  + App picker now scrollable with fixed bottom bar",
-    "    so Install button is always visible",
-    "  + Update All Apps added to the install window",
-    "  + Network row in info panel — shows all adapters,",
-    "    IP addresses and live internet status",
-    "  + Clicking Network opens a themed details popup",
-    "  + Task View button and Widgets disabled in tweaks",
-    "  + O&O ShutUp10 added to optional apps",
-    "  + Startup banner with scrolling changelog  <-- you are here",
-    "  + Closing app picker without selecting no longer",
-    "    locks the Install Apps button",
-    "  ",
+    "  + Adding editable network settings",
     "  ─────────────────────────────────────────────────────",
     "  QUICK REFERENCE",
     "  ─────────────────────────────────────────────────────",
@@ -440,17 +560,17 @@ $bannerLines = @(
     "  > Click USER to change the current password",
     "  > Click WINDOWS to enter a product key",
     "  > Click DOMAIN to join or leave a domain",
-    "  > Click NETWORK to see full adapter details",
+    "  > Click NETWORK to edit network details",
     "  > Click UPTIME to restart or shut down",
     "  ",
     "  > RUN ALL       —  full first-time setup from scratch",
     "  > DEFANG        —  strip bloat, junk and apply tweaks",
     "  > HP CLEANUP    —  remove HP bloatware and Wolf Security",
-    "  > INSTALL APPS  —  pick exactly what gets installed",
-    "  > ACCOUNTS      —  create local admin or standard users",
+    "  > INSTALL APPLICATIONS  -pick exactly what gets installed",
+    "  > MANAGE ACCOUNTS   —  create local admin or standard users",
     "  ",
     "  ─────────────────────────────────────────────────────",
-    "  Waiting for your command...",
+    "  SYSTEM READY -- Waiting for your command...",
     " "
     # -------------------------------------------------------
 )
@@ -487,7 +607,7 @@ $bannerTimer.Start()
 New-SectionLbl "" 120   # spacer
 
 $bAll = New-Object Windows.Forms.Button
-$bAll.Text="  RUN ALL — Full Teacher Setup"
+$bAll.Text="  FULL NUKE -- Full debloat, tweaks and install essential apps"
 $bAll.Location="10,144"; $bAll.Size="470,38"
 $bAll.FlatStyle="Flat"; $bAll.ForeColor=$btnRun[1]; $bAll.BackColor=$btnRun[0]
 $bAll.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
@@ -496,12 +616,12 @@ $bAll.TextAlign="MiddleLeft"; $bAll.Padding=New-Object Windows.Forms.Padding(10,
 $Form.Controls.Add($bAll)
 
 New-SectionLbl "SYSTEM CLEANUP" 190
-$b1 = New-Btn $Form "  Defang Windows  (Bloat + Junk + Tweaks)" 10 204 470 36 $btnRed
+$b1 = New-Btn $Form "  SANITIZE WINDOWS  (Remove Bloat + Essential Tweaks)" 10 204 470 36 $btnRed
 
 New-SectionLbl "CONFIGURATION" 248
-$b2 = New-Btn $Form "  HP Cleanup"   10 262 470 36 $btnAmb
-$b3 = New-Btn $Form "  Install Apps" 10 304 470 36 $btnBlue
-$b4 = New-Btn $Form "  Accounts"     10 346 470 36 $btnRun
+$b2 = New-Btn $Form "  EXTRACT VENDORS -- Debloat vendor applications"   10 262 470 36 $btnAmb
+$b3 = New-Btn $Form "  PROVISIONING -- Install Applications" 10 304 470 36 $btnBlue
+$b4 = New-Btn $Form "  IDENTITY -- Create Accounts"     10 346 470 36 $btnRun
 
 $ExitBtn.Location="10,638"   # was 620, pushed down
 
@@ -539,7 +659,7 @@ function Run-Debloat {
 function Run-EssentialTweaks {
     Write-ToUI "Applying essential tweaks..." "Cyan"
 
-    # Privacy & telemetry
+# Privacy & telemetry
     Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0 -ErrorAction SilentlyContinue
     Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
     $ads="HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
@@ -559,11 +679,25 @@ function Run-EssentialTweaks {
     Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd"   17 -ErrorAction SilentlyContinue
     Write-ToUI "Privacy and performance done."
 
-    # Show file extensions
+# Set timezone to New Zealand Standard Time
+    Write-ToUI "Setting timezone to NZ Standard Time..."
+    try {
+        Set-TimeZone -Id "New Zealand Standard Time" -ErrorAction Stop
+        Write-ToUI "Timezone set to NZ." "Lime"
+    } catch {
+        Write-ToUI "Timezone change failed — set manually if needed." "Orange"
+    }
+
+# Show file extensions
     Write-ToUI "Showing file extensions..."
     Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt" 0 -ErrorAction SilentlyContinue
 
-    # Disable startup programs
+# Disable item checkboxes in Explorer
+    Write-ToUI "Disabling item checkboxes in Explorer..."
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "AutoCheckSelect" 0 -ErrorAction SilentlyContinue
+
+
+# Disable startup programs
     Write-ToUI "Clearing startup programs..."
     @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
       "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run") | ForEach-Object {
@@ -575,21 +709,21 @@ function Run-EssentialTweaks {
             }
     }
 
-    # Disable Task View button on taskbar
+# Disable Task View button on taskbar
     Write-ToUI "Hiding Task View button..."
     Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
         -Name "ShowTaskViewButton" -Value 0 -ErrorAction SilentlyContinue
 
-    # Disable Widgets (Win11 — both the policy key and the taskbar toggle)
+# Disable Widgets (Win11 — both the policy key and the taskbar toggle)
     Write-ToUI "Disabling Widgets..."
     $widgetPolicy="HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
     if(-not(Test-Path $widgetPolicy)){New-Item -Path $widgetPolicy -Force | Out-Null}
     Set-ItemProperty -Path $widgetPolicy -Name "AllowNewsAndInterests" -Value 0 -ErrorAction SilentlyContinue
-    # Taskbar toggle (Win11 22H2+)
+# Taskbar toggle (Win11 22H2+)
     Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" `
         -Name "TaskbarDa" -Value 0 -ErrorAction SilentlyContinue
 
-    # Windows 10 right-click menu
+# Windows 10 right-click menu
     Write-ToUI "Restoring Win10 right-click menu..."
     $rc="HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
     if(-not(Test-Path $rc)){New-Item -Path $rc -Force | Out-Null}
@@ -876,7 +1010,7 @@ $b3.Add_Click({
 $b4.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
 
-    $F = New-SubForm "Account Manager" 400 340
+    $F = New-SubForm "Account Manager" 400 380
     New-SubLbl $F "Create Local Account" 15 12 360 18 $txtMuted 8 | Out-Null
 
     New-SubLbl $F "Username:" 15 36 360 18 $txtPrimary | Out-Null
@@ -932,6 +1066,7 @@ $b4.Add_Click({
         }
     })
     $btnCancel.Add_Click({$F.Close()})
+    $F.FormBorderStyle = "Sizable"
     $F.ShowDialog()
 })
 
