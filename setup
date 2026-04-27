@@ -62,7 +62,7 @@ function New-SectionLbl($text, $y) {
 # MAIN WINDOW  — 500 wide x 660 tall (more square, smaller)
 # ============================================================
 $Form = New-Object Windows.Forms.Form
-$Form.Text = "APEX CONFIGURATOR"
+$Form.Text = "WRAYNET WINDOWS UTILITY"
 $Form.Size = "500,720"
 $Form.MinimumSize = "500,560"
 $Form.StartPosition = "CenterScreen"
@@ -542,37 +542,37 @@ function Write-ToUI($msg, $col="Lime") {
 $bannerLines = @(
     " ",
     "  ╔══════════════════════════════════════╗",
-    "  ║     Laptop SETUP UTILITY  v1.0       ║",
-    "  ║     Vibed together by Kyran Wray     ║",
+    "  ║      WRAYNET WINDOWS UTILITY         ║",
+    "  ║      Vibed by Kyran Wray             ║",
     "  ╚══════════════════════════════════════╝",
-    " ",
-
     " ",
     "  CHANGELOG",
     "  ─────────────────────────────────────────────────────",
-    "  v1.0  —  $(Get-Date -Format 'dd MMM yyyy')",
-    "  ",
-    "  + Adding editable network settings",
-    "  ─────────────────────────────────────────────────────",
+    "  v1.2 — $(Get-Date -Format 'dd MMM yyyy')",
+    "  + Added Hardware diagnostics",
+    "  + Refactored UI spacing and grouping",
+    " ",
     "  QUICK REFERENCE",
     "  ─────────────────────────────────────────────────────",
-    "  > Click COMPUTER to rename this machine",
-    "  > Click USER to change the current password",
-    "  > Click WINDOWS to enter a product key",
-    "  > Click DOMAIN to join or leave a domain",
-    "  > Click NETWORK to edit network details",
-    "  > Click UPTIME to restart or shut down",
-    "  ",
-    "  > RUN ALL       —  full first-time setup from scratch",
-    "  > DEFANG        —  strip bloat, junk and apply tweaks",
-    "  > HP CLEANUP    —  remove HP bloatware and Wolf Security",
-    "  > INSTALL APPLICATIONS  -pick exactly what gets installed",
-    "  > MANAGE ACCOUNTS   —  create local admin or standard users",
-    "  ",
+    "  Click COMPUTER  : Rename machine",
+    "  Click USER      : Change password",
+    "  Click WINDOWS   : Product activation",
+    "  Click DOMAIN    : Join/Leave domain",
+    "  Click NETWORK   : Edit IP settings",
+    "  Click UPTIME    : Power options",
+    " ",
+    "  COMMANDS",
+    "  ─────────────────────────────────────────────────────",
+    "  > TOTAL DEPLOY    — Full automation",
+    "  > SYSTEM SANITIZE — Strip bloat & tweaks",
+    "  > VENDOR PURGE    — Remove vendor bloat",
+    "  > APPLICATIONS    — Software installer",
+    "  > USER ACCOUNTS   — Create admin/users",
+    "  > DIAGNOSTICS     — Hardware health",
+    " ",
     "  ─────────────────────────────────────────────────────",
     "  SYSTEM READY -- Waiting for your command...",
     " "
-    # -------------------------------------------------------
 )
 
 # Scroll each line in with a short delay so it feels alive
@@ -582,18 +582,21 @@ $bannerIndex = 0
 $bannerTimer.Add_Tick({
     if($bannerIndex -lt $bannerLines.Count) {
         $line = $bannerLines[$bannerIndex]
-        # Colour the ASCII art differently from the rest
-        if($bannerIndex -ge 1 -and $bannerIndex -le 6) {
-            Write-ToUI $line "Cyan"
-        } elseif($line -match "^  >") {
-            Write-ToUI $line "Yellow"
-        } elseif($line -match "^  Tip:") {
-            Write-ToUI $line "Orange"
-        } elseif($line -match "Waiting") {
-            Write-ToUI $line "Lime"
+        
+        # Determine color by simple content matching
+        if($bannerIndex -ge 1 -and $bannerIndex -le 4) {
+            $lineColor = "Cyan"
+        } elseif($line -match "CHANGELOG|QUICK REFERENCE|COMMANDS") {
+            $lineColor = "White"
+        } elseif($line -match ">") {
+            $lineColor = "Yellow"
+        } elseif($line -match "READY") {
+            $lineColor = "Lime"
         } else {
-            Write-ToUI $line "Gray"
+            $lineColor = "Gray"
         }
+
+        Write-ToUI $line $lineColor
         $script:bannerIndex++
     } else {
         $bannerTimer.Stop()
@@ -605,24 +608,28 @@ $bannerTimer.Start()
 # MAIN BUTTONS
 # ============================================================
 $bAll = New-Object Windows.Forms.Button
-$bAll.Text="  FULL NUKE -- Full debloat, tweaks and Provisioning"
-$bAll.Location="10,125"; $bAll.Size="470,38" # Moved up from 144
+$bAll.Text="  TOTAL DEPLOY - Full Provision"
+$bAll.Location="10,125"; $bAll.Size="470,38"
 $bAll.FlatStyle="Flat"; $bAll.ForeColor=$btnRun[1]; $bAll.BackColor=$btnRun[0]
 $bAll.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
 $bAll.FlatAppearance.BorderColor=$border; $bAll.FlatAppearance.BorderSize=1
 $bAll.TextAlign="MiddleLeft"; $bAll.Padding=New-Object Windows.Forms.Padding(10,0,0,0)
 $Form.Controls.Add($bAll)
 
+# --- SYSTEM CLEANUP  ---
 New-SectionLbl "SYSTEM CLEANUP" 175
-$b1 = New-Btn $Form "  SANITIZE WINDOWS  (Remove Bloat + Essential Tweaks)" 10 192 470 36 $btnRed
+$b1 = New-Btn $Form "  SYSTEM SANITIZE -- Debloat + Essential Tweaks" 10 192 470 36 $btnRed
+# Moved from Configuration to Cleanup
+$b2 = New-Btn $Form "  VENDOR PURGE -- Debloat vendor applications"    10 234 470 36 $btnAmb 
 
-New-SectionLbl "CONFIGURATION" 240
-$b2 = New-Btn $Form "  EXTRACT VENDORS -- Debloat vendor applications"    10 258 470 36 $btnAmb
-$b3 = New-Btn $Form "  PROVISIONING -- Install Applications" 10 300 470 36 $btnBlue
-$b4 = New-Btn $Form "  IDENTITY -- Create Accounts"      10 342 470 36 $btnRun
+# --- CONFIGURATION  ---
+New-SectionLbl "CONFIGURATION" 285 
+$b3 = New-Btn $Form "  APPLICATION PROVISIONING" 10 302 470 36 $btnBlue
+$b4 = New-Btn $Form "  USER PROVISIONING"      10 344 470 36 $btnRun
 
-New-SectionLbl "DIAGNOSTICS" 390 # Fixed from 200
-$b5 = New-Btn $Form "  Diagnostics & Hardware Tests" 10 408 470 36 $btnAmb
+# --- HARDWARE  ---
+New-SectionLbl "HARDWARE" 395 
+$b5 = New-Btn $Form "SYSTEM DIAGNOSTICS" 10 412 470 36 $btnAmb
 
 # ============================================================
 # LOGIC FUNCTIONS
