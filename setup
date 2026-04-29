@@ -267,7 +267,37 @@ $lblWindows.Add_Click({
     $F.ShowDialog()
 })
 
-$lblDomain.Add_Click({ Show-DomainTools })
+$lblDomain.Add_Click({
+    $JF = New-SubForm "Join / Leave Domain" 420 145
+    $cs = Get-CimInstance Win32_ComputerSystem
+    # Show current status at top
+    $statusLbl = New-Object Windows.Forms.Label
+    $statusLbl.Text = if($cs.PartOfDomain){"  Currently joined to: $($cs.Domain)"}else{"  Currently in WORKGROUP: $($cs.Workgroup)"}
+    $statusLbl.Location="15,12"; $statusLbl.Size="380,18"
+    $statusLbl.ForeColor = if($cs.PartOfDomain){[Drawing.Color]::FromArgb(112,184,168)}else{[Drawing.Color]::FromArgb(200,148,58)}
+    $statusLbl.Font=New-Object Drawing.Font("Segoe UI",8,[Drawing.FontStyle]::Bold)
+    $statusLbl.BackColor=[Drawing.Color]::Transparent
+    $JF.Controls.Add($statusLbl)
+    New-SubLbl $JF "Domain Name:" 15 35 380 18 $txtPrimary|Out-Null
+    $tDom = New-SubTxt $JF 15 55 380
+    $btnJ = New-SubBtn $JF "  Join Domain " 15 95 188 38 $btnTeal
+    $btnL = New-SubBtn $JF "  Leave Domain "     211 95 188 38 $btnRed
+    $btnJ.Add_Click({
+        if([string]::IsNullOrWhiteSpace($tDom.Text)){[Windows.Forms.MessageBox]::Show("Enter a domain name.","Error");return}
+        if([Windows.Forms.MessageBox]::Show("Join '$($tDom.Text)' and reboot?","Confirm","YesNo") -eq "Yes"){
+            try{Add-Computer -DomainName $tDom.Text -Restart -ErrorAction Stop}
+            catch{[Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)")}}
+    })
+    $btnL.Add_Click({
+        if([Windows.Forms.MessageBox]::Show("Leave domain and return to WORKGROUP?`nThis will reboot.","Confirm","YesNo") -eq "Yes"){
+            try{Remove-Computer -WorkgroupName "WORKGROUP" -Force -Restart}
+            catch{[Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)")}}
+    })
+    $JF.ShowDialog()
+    Refresh-SystemInfo
+})
+
+
 $lblNetwork.Add_Click({ Show-NetworkManager })
 
 $lblUptime.Add_Click({
@@ -418,90 +448,46 @@ function Show-NetworkManager {
 # DOMAIN TOOLS — called from label and button
 # ============================================================
 function Show-DomainTools {
-    $F = New-SubForm "Domain Tools" 500 480
     $cs = Get-CimInstance Win32_ComputerSystem
 
+    $F = New-SubForm "Domain Tools" 480 480
+    $F.FormBorderStyle = "FixedDialog"
+
+    # Status banner
     $banner = New-Object Windows.Forms.Panel
-    $banner.Location="0,0"; $banner.Size="500,36"; $banner.BorderStyle="None"
+    $banner.Location="0,0"; $banner.Size="480,40"; $banner.BorderStyle="None"
     $banner.BackColor = if($cs.PartOfDomain){[Drawing.Color]::FromArgb(30,42,38)}else{[Drawing.Color]::FromArgb(42,35,24)}
     $F.Controls.Add($banner)
     $bannerLbl = New-Object Windows.Forms.Label
     $bannerLbl.Text = if($cs.PartOfDomain){"  DOMAIN JOINED: $($cs.Domain)"}else{"  WORKGROUP: $($cs.Workgroup)"}
-    $bannerLbl.Location="0,0"; $bannerLbl.Size="500,36"
+    $bannerLbl.Location="0,0"; $bannerLbl.Size="480,40"
     $bannerLbl.ForeColor = if($cs.PartOfDomain){[Drawing.Color]::FromArgb(112,184,168)}else{[Drawing.Color]::FromArgb(200,148,58)}
     $bannerLbl.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
     $bannerLbl.TextAlign="MiddleLeft"; $bannerLbl.BackColor=[Drawing.Color]::Transparent
     $banner.Controls.Add($bannerLbl)
 
-    $fy = 46
+    $y = 52
+    $bw = 440  # button width
+    $bh = 38   # button height
+    $bx = 20   # button x
 
-    function DT-Section($title){
-        $s=New-Object Windows.Forms.Label; $s.Text=$title
-        $s.Location="15,$fy"; $s.Size="460,13"; $s.ForeColor=$txtMuted
-        $s.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold)
-        $F.Controls.Add($s); $script:fy+=$fy+18
+    function DT-Btn($text,$top,$pair){
+        $b=New-Object Windows.Forms.Button
+        $b.Text=$text; $b.Location="$bx,$top"; $b.Size="$bw,$bh"
+        $b.FlatStyle="Flat"; $b.ForeColor=$pair[1]; $b.BackColor=$pair[0]
+        $b.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
+        $b.FlatAppearance.BorderColor=$border; $b.FlatAppearance.BorderSize=1
+        $F.Controls.Add($b); return $b
     }
 
-    # Join / Leave
-    $s1=New-Object Windows.Forms.Label; $s1.Text="JOIN / LEAVE"
-    $s1.Location="15,$fy"; $s1.Size="460,13"; $s1.ForeColor=$txtMuted
-    $s1.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold); $F.Controls.Add($s1); $fy+=18
-    New-SubLbl $F "Domain Name:" 15 $fy 460 18 $txtPrimary|Out-Null; $fy+=22
-    $tDomain = New-SubTxt $F 15 $fy 460; $fy+=34
-    $btnJoin  = New-SubBtn $F "Join Domain  (will reboot)" 15 $fy 220 34 $btnTeal
-    $btnLeave = New-SubBtn $F "Leave Domain  (reboot)"    243 $fy 232 34 $btnRed
-    $btnJoin.Add_Click({
-        if([string]::IsNullOrWhiteSpace($tDomain.Text)){[Windows.Forms.MessageBox]::Show("Enter a domain name.","Error");return}
-        if([Windows.Forms.MessageBox]::Show("Join '$($tDomain.Text)' and reboot?","Confirm","YesNo") -eq "Yes"){
-            try{Add-Computer -DomainName $tDomain.Text -Restart -ErrorAction Stop}
-            catch{[Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)")}}
-    })
-    $btnLeave.Add_Click({
-        if([Windows.Forms.MessageBox]::Show("Leave domain and reboot?","Confirm","YesNo") -eq "Yes"){
-            Remove-Computer -WorkgroupName "WORKGROUP" -Force -Restart}
-    })
-    $fy += 46
+    $btnJoinLeave = DT-Btn "  Join / Leave Domain"        $y $btnTeal; $y+=46
+    $btnGPReport  = DT-Btn "  Generate GP Report"         $y $btnBlue; $y+=46
+    $btnGPUpdate  = DT-Btn "  Force Group Policy Update"  $y $btnBlue; $y+=46
+    $btnDNS       = DT-Btn "  Flush DNS + Re-register"   $y $btnTeal; $y+=46
+    $btnDsreg     = DT-Btn "  View dsregcmd Status"       $y $btnAmb;  $y+=46
+    $btnAADLeave  = DT-Btn "  Leave Azure AD Join"        $y $btnRed;  $y+=46
 
-    # Group Policy
-    $s2=New-Object Windows.Forms.Label; $s2.Text="GROUP POLICY"
-    $s2.Location="15,$fy"; $s2.Size="460,13"; $s2.ForeColor=$txtMuted
-    $s2.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold); $F.Controls.Add($s2); $fy+=18
-    $btnGP = New-SubBtn $F "Generate GP Report  (saves to Desktop)" 15 $fy 460 34 $btnBlue
-    $btnGP.Add_Click({
-        Write-ToUI "Generating Group Policy report..." "Cyan"
-        $gpPath="$env:USERPROFILE\Desktop\gpreport.html"
-        gpresult /H $gpPath /F 2>&1|Out-Null
-        if(Test-Path $gpPath){Write-ToUI "GP report saved to Desktop." "Lime"; Start-Process $gpPath}
-        else{Write-ToUI "GP report failed — machine may not be domain joined." "Orange"
-             [Windows.Forms.MessageBox]::Show("GP report failed.`n`nMachine may not be on a domain.","Error")}
-    })
-    $fy += 42
-    $btnGPU = New-SubBtn $F "Force Group Policy Update  (gpupdate /force)" 15 $fy 460 34 $btnBlue
-    $btnGPU.Add_Click({
-        Write-ToUI "Running gpupdate /force..." "Cyan"; $F.Enabled=$false
-        gpupdate /force 2>&1|Out-Null; $F.Enabled=$true
-        Write-ToUI "Group Policy update complete." "Lime"
-        [Windows.Forms.MessageBox]::Show("gpupdate /force complete.","Done")
-    })
-    $fy += 46
-
-    # DNS
-    $s3=New-Object Windows.Forms.Label; $s3.Text="DNS / REGISTRATION"
-    $s3.Location="15,$fy"; $s3.Size="460,13"; $s3.ForeColor=$txtMuted
-    $s3.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold); $F.Controls.Add($s3); $fy+=18
-    $btnDNS = New-SubBtn $F "Flush DNS + Re-register in Domain" 15 $fy 460 34 $btnTeal
-    $btnDNS.Add_Click({
-        Write-ToUI "Flushing DNS..." "Cyan"; ipconfig /flushdns 2>&1|Out-Null
-        Write-ToUI "Re-registering DNS..." "Cyan"; ipconfig /registerdns 2>&1|Out-Null
-        Write-ToUI "DNS flush and re-registration complete." "Lime"
-        [Windows.Forms.MessageBox]::Show("DNS flushed and re-registered.","Done")
-    })
-    $fy += 46
-
-    # Azure AD
-    $s4=New-Object Windows.Forms.Label; $s4.Text="AZURE AD / HYBRID JOIN"
-    $s4.Location="15,$fy"; $s4.Size="460,13"; $s4.ForeColor=$txtMuted
-    $s4.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold); $F.Controls.Add($s4); $fy+=18
+    # Azure AD status shown as a small label under that button
     $dsregRaw    = & dsregcmd /status 2>&1
     $azureJoined = ($dsregRaw|Select-String "AzureAdJoined\s*:\s*YES") -ne $null
     $domJoined   = ($dsregRaw|Select-String "DomainJoined\s*:\s*YES")  -ne $null
@@ -510,37 +496,74 @@ function Show-DomainTools {
                    elseif($domJoined){"On-premises AD only"}
                    else{"Not joined to any directory"}
     $statusLbl = New-Object Windows.Forms.Label
-    $statusLbl.Text="Current: $statusText"; $statusLbl.Location="15,$fy"; $statusLbl.Size="460,18"
-    $statusLbl.ForeColor=[Drawing.Color]::FromArgb(200,148,58); $statusLbl.Font=New-Object Drawing.Font("Segoe UI",8)
-    $F.Controls.Add($statusLbl); $fy+=26
-    $btnDsreg   = New-SubBtn $F "Open dsregcmd Status" 15 $fy 220 34 $btnAmb
-    $btnAADLeave= New-SubBtn $F "Leave Azure AD Join"  243 $fy 232 34 $btnRed
+    $statusLbl.Text="  Current: $statusText"; $statusLbl.Location="$bx,$y"; $statusLbl.Size="$bw,18"
+    $statusLbl.ForeColor=$txtMuted; $statusLbl.Font=New-Object Drawing.Font("Segoe UI",8)
+    $statusLbl.BackColor=[Drawing.Color]::Transparent
+    $F.Controls.Add($statusLbl)
+
+    $F.Size="480,$($y+90)"
+
+    # ---- Button actions ----
+
+    $btnJoinLeave.Add_Click({
+        $JF = New-SubForm "Join / Leave Domain" 420 175
+        New-SubLbl $JF "Domain Name:" 15 15 380 18 $txtPrimary|Out-Null
+        $tDom = New-SubTxt $JF 15 38 380
+        $btnJ = New-SubBtn $JF "  Join Domain  (will reboot)" 15 80 188 38 $btnTeal
+        $btnL = New-SubBtn $JF "  Leave Domain  (reboot)"     211 80 188 38 $btnRed
+        $btnJ.Add_Click({
+            if([string]::IsNullOrWhiteSpace($tDom.Text)){[Windows.Forms.MessageBox]::Show("Enter a domain name.","Error");return}
+            if([Windows.Forms.MessageBox]::Show("Join '$($tDom.Text)' and reboot?","Confirm","YesNo") -eq "Yes"){
+                try{Add-Computer -DomainName $tDom.Text -Restart -ErrorAction Stop}
+                catch{[Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)")}}
+        })
+        $btnL.Add_Click({
+            if([Windows.Forms.MessageBox]::Show("Leave domain and return to WORKGROUP?`nThis will reboot.","Confirm","YesNo") -eq "Yes"){
+                try{Remove-Computer -WorkgroupName "WORKGROUP" -Force -Restart}
+                catch{[Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)")}}
+        })
+        $JF.ShowDialog()
+        Refresh-SystemInfo
+    })
+
+    $btnGPReport.Add_Click({
+        Write-ToUI "Generating Group Policy report..." "Cyan"
+        $gpPath="$env:USERPROFILE\Desktop\gpreport.html"
+        gpresult /H $gpPath /F 2>&1|Out-Null
+        if(Test-Path $gpPath){Write-ToUI "GP report saved to Desktop." "Lime"; Start-Process $gpPath}
+        else{Write-ToUI "GP report failed — machine may not be domain joined." "Orange"
+             [Windows.Forms.MessageBox]::Show("GP report failed.`n`nMachine may not be on a domain.","Error")}
+    })
+
+    $btnGPUpdate.Add_Click({
+        Write-ToUI "Running gpupdate /force..." "Cyan"; $F.Enabled=$false
+        gpupdate /force 2>&1|Out-Null; $F.Enabled=$true
+        Write-ToUI "Group Policy update complete." "Lime"
+        [Windows.Forms.MessageBox]::Show("gpupdate /force complete.","Done")
+    })
+
+    $btnDNS.Add_Click({
+        Write-ToUI "Flushing DNS..." "Cyan"; ipconfig /flushdns 2>&1|Out-Null
+        Write-ToUI "Re-registering DNS..." "Cyan"; ipconfig /registerdns 2>&1|Out-Null
+        Write-ToUI "DNS flush and re-registration complete." "Lime"
+        [Windows.Forms.MessageBox]::Show("DNS flushed and re-registered.","Done")
+    })
+
     $btnDsreg.Add_Click({
         $output=& dsregcmd /status 2>&1|Out-String
-        $tmp="$env:TEMP\dsregcmd-status.txt"; $output|Out-File $tmp -Encoding UTF8
+        $tmp="$env:TEMP\dsregcmd-status.txt"
+        $output|Out-File $tmp -Encoding UTF8
         Start-Process "notepad.exe" $tmp
     })
+
     $btnAADLeave.Add_Click({
-        if([Windows.Forms.MessageBox]::Show("Remove Azure AD join?`n`nMachine will need re-enrollment.`nContinue?","Confirm Azure AD Leave","YesNo") -ne "Yes"){return}
+        if([Windows.Forms.MessageBox]::Show("Remove Azure AD join?`n`nMachine will need re-enrollment. Continue?","Confirm Azure AD Leave","YesNo") -ne "Yes"){return}
         Write-ToUI "Leaving Azure AD..." "Yellow"
         & dsregcmd /leave 2>&1|Out-Null
         Write-ToUI "Azure AD leave sent. Restart to complete." "Lime"
         [Windows.Forms.MessageBox]::Show("Azure AD leave sent.`nRestart required.","Done")
     })
-    $fy += 46
 
-    # Misc
-    $s5=New-Object Windows.Forms.Label; $s5.Text="MISC"
-    $s5.Location="15,$fy"; $s5.Size="460,13"; $s5.ForeColor=$txtMuted
-    $s5.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold); $F.Controls.Add($s5); $fy+=18
-    $btnRSAT = New-SubBtn $F "Open Active Directory Users & Computers" 15 $fy 460 34 $btnBlue
-    $btnRSAT.Add_Click({
-        try{Start-Process "dsa.msc" -ErrorAction Stop}
-        catch{[Windows.Forms.MessageBox]::Show("ADUC not installed on this machine.","Not Found")}
-    })
-    $fy += 46
-
-    $F.Size="500,$($fy+20)"
     $F.ShowDialog()
     Refresh-SystemInfo
 }
@@ -851,6 +874,35 @@ function Run-Installs($AppList,$DoChrome,$DoVLC) {
     if($DoChrome){Set-ChromeDefault}
     if($DoVLC)   {Set-VLCDefault}
     Write-ToUI "App installs complete!" "Lime"
+
+    Write-ToUI "Installing $id..."
+            winget install --id $id -e --accept-source-agreements --accept-package-agreements --silent
+            Write-ToUI "  Done: $id" "Lime"
+
+            # Install uBlock Origin automatically after Firefox
+            if($id -eq "Mozilla.Firefox"){
+                Write-ToUI "  Installing uBlock Origin for Firefox..." "Cyan"
+                # uBlock Origin can't be silently sideloaded via winget
+                # We drop it into Firefox's distribution folder so it
+                # installs automatically on first launch
+                $ffDir = "${env:ProgramFiles}\Mozilla Firefox"
+                if(-not(Test-Path $ffDir)){$ffDir="${env:ProgramFiles(x86)}\Mozilla Firefox"}
+                if(Test-Path $ffDir){
+                    $distDir = "$ffDir\distribution\extensions"
+                    if(-not(Test-Path $distDir)){New-Item -Path $distDir -ItemType Directory -Force|Out-Null}
+                    $xpiUrl  = "https://addons.mozilla.org/firefox/downloads/file/4359136/ublock_origin-latest.xpi"
+                    $xpiDest = "$distDir\uBlock0@raymondhill.net.xpi"
+                    try{
+                        Invoke-WebRequest -Uri $xpiUrl -OutFile $xpiDest -UseBasicParsing -ErrorAction Stop
+                        Write-ToUI "  uBlock Origin deployed to Firefox distribution folder." "Lime"
+                        Write-ToUI "  It will activate automatically on first Firefox launch." "Lime"
+                    }catch{
+                        Write-ToUI "  uBlock Origin download failed — install manually from addons.mozilla.org" "Orange"
+                    }
+                } else {
+                    Write-ToUI "  Firefox directory not found — uBlock skipped." "Orange"
+                }
+            }
 }
 
 # ============================================================
@@ -1101,7 +1153,7 @@ $b6.Add_Click({
 
 $b7.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
-    $DF = New-SubForm "Diagnostics & Hardware Tests" 480 380
+    $DF = New-SubForm "Diagnostics & Hardware Tests" 480 420
     New-SubLbl $DF "Run hardware diagnostics and health checks" 15 12 440 18 $txtMuted 8|Out-Null
 
     $btnBat = New-SubBtn $DF "Battery Report" 15 45 440 36 $btnTeal
@@ -1175,6 +1227,72 @@ $b7.Add_Click({
         $rp="$env:USERPROFILE\Desktop\hardware-info.txt"
         $report|Out-File $rp -Encoding UTF8
         Write-ToUI "Hardware info saved to Desktop." "Lime"; Start-Process "notepad.exe" $rp
+    })
+    $btnWU = New-SubBtn $DF "  Force Windows Update + Repair Services" 15 353 440 38 $btnTeal
+    $btnWU.Add_Click({
+        $confirm=[Windows.Forms.MessageBox]::Show(
+            "This will:`n`n  • Reset Windows Update components`n  • Restart Update services`n  • Force check for updates`n`nThis may take a few minutes. Continue?",
+            "Windows Update Repair","YesNo")
+        if($confirm -ne "Yes"){return}
+
+        Write-ToUI "Stopping Windows Update services..." "Yellow"; $DF.Enabled=$false
+
+        # Stop services
+        "wuauserv","cryptSvc","bits","msiserver"|ForEach-Object{
+            Write-ToUI "  Stopping: $_"
+            Stop-Service -Name $_ -Force -ErrorAction SilentlyContinue}
+
+        # Rename broken cache folders so Windows rebuilds them
+        $sd="$env:SystemRoot\SoftwareDistribution"
+        $cr="$env:SystemRoot\System32\catroot2"
+        if(Test-Path $sd){
+            Write-ToUI "  Clearing SoftwareDistribution..." "Cyan"
+            Rename-Item $sd "$sd.bak_$(Get-Date -Format 'yyyyMMddHHmm')" -ErrorAction SilentlyContinue
+        }
+        if(Test-Path $cr){
+            Write-ToUI "  Clearing catroot2..." "Cyan"
+            Rename-Item $cr "$cr.bak_$(Get-Date -Format 'yyyyMMddHHmm')" -ErrorAction SilentlyContinue
+        }
+
+        # Re-register update DLLs
+        Write-ToUI "  Re-registering update DLLs..." "Cyan"
+        @("atl.dll","urlmon.dll","mshtml.dll","shdocvw.dll","browseui.dll",
+          "jscript.dll","vbscript.dll","scrrun.dll","msxml.dll","msxml3.dll",
+          "msxml6.dll","actxprxy.dll","softpub.dll","wintrust.dll","dssenh.dll",
+          "rsaenh.dll","gpkcsp.dll","sccbase.dll","slbcsp.dll","cryptdlg.dll",
+          "oleaut32.dll","ole32.dll","shell32.dll","wuapi.dll","wuaueng.dll",
+          "wuaueng1.dll","wucltui.dll","wups.dll","wups2.dll","wuweb.dll",
+          "qmgr.dll","qmgrprxy.dll","wucltux.dll","muweb.dll","wuwebv.dll")|ForEach-Object{
+            & regsvr32.exe /s $_ 2>&1|Out-Null}
+
+        # Reset WinSock and proxy
+        Write-ToUI "  Resetting network stack..." "Cyan"
+        & netsh winsock reset 2>&1|Out-Null
+        & netsh winhttp reset proxy 2>&1|Out-Null
+
+        # Restart services
+        Write-ToUI "  Restarting Windows Update services..." "Cyan"
+        "bits","cryptSvc","wuauserv","msiserver"|ForEach-Object{
+            Write-ToUI "  Starting: $_"
+            Start-Service -Name $_ -ErrorAction SilentlyContinue}
+
+        # Trigger update scan
+        Write-ToUI "  Triggering update scan..." "Cyan"
+        try{
+            $wu=[activator]::CreateInstance([type]::GetTypeFromProgID("Microsoft.Update.AutoUpdate"))
+            $wu.DetectNow()
+            Write-ToUI "  Update scan triggered." "Lime"
+        }catch{
+            # Fallback — invoke via UsoClient
+            & UsoClient.exe StartScan 2>&1|Out-Null
+            Write-ToUI "  Update scan triggered via UsoClient." "Lime"
+        }
+
+        $DF.Enabled=$true
+        Write-ToUI "Windows Update repair complete." "Lime"
+        [Windows.Forms.MessageBox]::Show(
+            "Windows Update repair complete.`n`nCheck Settings > Windows Update to see available updates.`n`nA restart may be required.",
+            "Done")
     })
 
     $DF.ShowDialog()
