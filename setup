@@ -27,6 +27,7 @@ $btnAmb  = @([Drawing.Color]::FromArgb(42,35,24),  [Drawing.Color]::FromArgb(200
 $btnTeal = @([Drawing.Color]::FromArgb(30,42,42),  [Drawing.Color]::FromArgb(112,184,168))
 $btnBlue = @([Drawing.Color]::FromArgb(30,37,48),  [Drawing.Color]::FromArgb(112,152,200))
 $btnDim  = @([Drawing.Color]::FromArgb(22,22,27),  [Drawing.Color]::FromArgb(80,80,100))
+$btnPurp = @([Drawing.Color]::FromArgb(38,30,48), [Drawing.Color]::FromArgb(160,140,220))
 
 # ============================================================
 # HELPERS
@@ -52,9 +53,11 @@ function New-Lbl($parent,$text,$x,$y,$w,$h,$color,$size=8,$style="Regular") {
 
 function New-SubForm($title,$w,$h) {
     $f = New-Object Windows.Forms.Form
-    $f.Text=$title; $f.Size="$w,$($h+40)"; $f.StartPosition="CenterParent"
+    $f.Text=$title; $f.Size="$w,$($h + 50)" # Increased buffer to 50
+    $f.StartPosition="CenterParent"
     $f.BackColor=$bgSubForm; $f.ForeColor=$txtPrimary
     $f.FormBorderStyle="FixedDialog"; $f.MaximizeBox=$false; $f.MinimizeBox=$false
+    $f.AutoScaleMode = "Dpi" # Explicitly match the main form's scaling
     return $f
 }
 
@@ -620,7 +623,7 @@ $bannerTimer.Start()
 # BringToFront() called — this fixes the overlap issue
 # ============================================================
 $bAll = New-Object Windows.Forms.Button
-$bAll.Text="  TOTAL DEPLOY — Full Provision"
+$bAll.Text="  RUN ALL -- Full Provision"
 $bAll.Location="10,125"; $bAll.Size="470,38"
 $bAll.FlatStyle="Flat"; $bAll.ForeColor=$btnRun[1]; $bAll.BackColor=$btnRun[0]
 $bAll.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
@@ -630,22 +633,18 @@ $bAll.Anchor="Top,Left,Right"
 $Form.Controls.Add($bAll)
 
 # SYSTEM CLEANUP
-$sl1 = New-SectionLabel "SYSTEM CLEANUP" 173
-$b1  = New-Btn $Form "  SYSTEM SANITIZE — Debloat + Essential Tweaks"    10 190 470 36 $btnRed
-$b2  = New-Btn $Form "  VENDOR PURGE — Auto-detect + Remove Vendor Bloat" 10 232 470 36 $btnAmb
+$b1  = New-Btn $Form "  SYSTEM SANITIZE — Debloat & Tweaks"    10 190 470 36 $btnRed
+$b2  = New-Btn $Form "  VENDOR PURGE — Remove Vendor Bloat" 10 232 470 36 $btnAmb
 $sl1.BringToFront()
 
 # CONFIGURATION
-$sl2 = New-SectionLabel "CONFIGURATION" 280
-$b3  = New-Btn $Form "  APPLICATION PROVISIONING" 10 297 470 36 $btnBlue
-$b4  = New-Btn $Form "  USER PROVISIONING"        10 339 470 36 $btnRun
-$b5  = New-Btn $Form "  NETWORK MANAGER"          10 381 470 36 $btnTeal
+$b3  = New-Btn $Form "  APPLICATIONS" 10 297 470 36 $btnBlue
+$b4  = New-Btn $Form "  ACCOUNTS"        10 339 470 36 $btnRun
+$b5  = New-Btn $Form "  NETWORK"          10 381 470 36 $btnTeal
 $sl2.BringToFront()
 
-# DOMAIN + HARDWARE
-$sl3 = New-SectionLabel "DOMAIN + HARDWARE" 429
 $b6  = New-Btn $Form "  DOMAIN TOOLS"       10 446 470 36 $btnTeal
-$b7  = New-Btn $Form "  SYSTEM DIAGNOSTICS" 10 488 470 36 $btnAmb
+$b7  = New-Btn $Form "  DIAGNOSTICS" 10 488 470 36 $btnAmb
 $sl3.BringToFront()
 
 # ============================================================
@@ -865,7 +864,7 @@ function Show-AppPicker($RunAfter){
     $AF.Text="Select Apps to Install"; $AF.StartPosition="CenterParent"
     $AF.BackColor=$bgSubForm; $AF.ForeColor=$txtPrimary
     $AF.FormBorderStyle="Sizable"; $AF.MaximizeBox=$false; $AF.MinimizeBox=$false
-    $AF.MinimumSize="410,500"; $AF.Size="410,680"
+    $AF.MinimumSize="400,500"; $AF.Size="400,750"
 
     $scroll = New-Object Windows.Forms.Panel
     $scroll.Location="0,0"; $scroll.Size="410,552"
@@ -998,7 +997,7 @@ function Show-AppPicker($RunAfter){
     $AF.ShowDialog()|Out-Null
 
     if($script:pickerConfirmed){& $RunAfter $script:pickerSelected $script:pickerChrome $script:pickerVLC}
-    else{$b3.Text="  APPLICATION PROVISIONING"; $b3.Enabled=$true}
+    else{$b3.Text="  APPLICATIONS"; $b3.Enabled=$true}
 }
 
 # ============================================================
@@ -1023,35 +1022,58 @@ $b3.Add_Click({
     $b3.Enabled=$false; $b3.Text="  Working..."
     Show-AppPicker{param($sel,$chrome,$vlc)
         Run-Installs $sel $chrome $vlc
-        $b3.Text="  APPLICATION PROVISIONING"; $b3.Enabled=$true}
+        $b3.Text="  APPLICATIONS"; $b3.Enabled=$true}
 })
 
 $b4.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
-    $F = New-SubForm "Account Manager" 400 300
+    # Form height 390 to fit the local mgmt button
+    $F = New-SubForm "Account Manager" 450 350 
+    
     New-SubLbl $F "Create Local Account" 15 12 360 18 $txtMuted 8|Out-Null
-    New-SubLbl $F "Username:" 15 36 360 18 $txtPrimary|Out-Null
-    $tUser = New-SubTxt $F 15 56 360
-    New-SubLbl $F "Full Name (optional):" 15 90 360 18 $txtPrimary|Out-Null
-    $tFull = New-SubTxt $F 15 110 360
-    New-SubLbl $F "Password:" 15 144 360 18 $txtPrimary|Out-Null
-    $tPass = New-SubTxt $F 15 164 360; $tPass.UseSystemPasswordChar=$true
-    New-SubLbl $F "Confirm Password:" 15 198 360 18 $txtPrimary|Out-Null
-    $tConf = New-SubTxt $F 15 218 360; $tConf.UseSystemPasswordChar=$true
+
+    # --- Property Grid Layout ---
+    New-SubLbl $F "Username:" 15 52 120 20 $txtPrimary|Out-Null
+    $tUser = New-SubTxt $F 140 50 280
+
+    New-SubLbl $F "Full Name:" 15 92 120 20 $txtPrimary|Out-Null
+    $tFull = New-SubTxt $F 140 90 280
+
+    New-SubLbl $F "Password:" 15 132 120 20 $txtPrimary|Out-Null
+    $tPass = New-SubTxt $F 140 130 280; $tPass.UseSystemPasswordChar=$true
+
+    New-SubLbl $F "Confirm:" 15 172 120 20 $txtPrimary|Out-Null
+    $tConf = New-SubTxt $F 140 170 280; $tConf.UseSystemPasswordChar=$true
+
     $cbAdmin = New-Object Windows.Forms.CheckBox
-    $cbAdmin.Text="Make this account a local Administrator"
-    $cbAdmin.Location="15,252"; $cbAdmin.Size="360,20"
+    $cbAdmin.Text="local Administrator"
+    $cbAdmin.Location="140,205"; $cbAdmin.Size="280,20"
     $cbAdmin.ForeColor=$txtPrimary; $cbAdmin.BackColor=[Drawing.Color]::Transparent
     $cbAdmin.Font=New-Object Drawing.Font("Segoe UI",9); $cbAdmin.Checked=$true
     $F.Controls.Add($cbAdmin)
-    $btnCreate = New-SubBtn $F "Create Account" 15 282 222 34 $btnTeal
-    $btnCancel = New-SubBtn $F "Cancel"          245 282 130 34 $btnDim
+
+    # --- Primary Buttons ---
+    $btnCreate = New-SubBtn $F "Create Account" 140 240 160 34 $btnTeal
+    $btnCancel = New-SubBtn $F "Cancel"          310 240 110 34 $btnDim
+
+    # --- Local Management Link ---
+    $sep = New-Object Windows.Forms.Label
+    $sep.Location="140,290"; $sep.Size="280,1"; $sep.BackColor=$border
+    $F.Controls.Add($sep)
+
+    $btnLusr = New-SubBtn $F "lusrmgr.msc" 140 305 280 32 $btnBlue
+    $btnLusr.Font = New-Object Drawing.Font("Segoe UI",8,[Drawing.FontStyle]::Bold)
+    $btnLusr.Add_Click({
+        try { Start-Process "lusrmgr.msc" -ErrorAction Stop }
+        catch { [Windows.Forms.MessageBox]::Show("Could not open lusrmgr.msc", "Error") }
+    })
+
     $btnCreate.Add_Click({
         $uname=$tUser.Text.Trim(); $fname=$tFull.Text.Trim()
         if([string]::IsNullOrWhiteSpace($uname)){[Windows.Forms.MessageBox]::Show("Username cannot be empty.","Error");return}
         if($tPass.Text -ne $tConf.Text){[System.Media.SystemSounds]::Hand.Play();[Windows.Forms.MessageBox]::Show("Passwords do not match!","Error");return}
         if($tPass.Text.Length -lt 1){[Windows.Forms.MessageBox]::Show("Password cannot be empty.","Error");return}
-        try{
+        try {
             $sp=ConvertTo-SecureString $tPass.Text -AsPlainText -Force
             $p=@{Name=$uname;Password=$sp;ErrorAction="Stop"}
             if(-not[string]::IsNullOrWhiteSpace($fname)){$p.FullName=$fname}
@@ -1061,7 +1083,7 @@ $b4.Add_Click({
             Write-ToUI "Account '$uname' created." "Lime"
             [Windows.Forms.MessageBox]::Show("Account '$uname' created!`nGroup: $(if($cbAdmin.Checked){'Administrators'}else{'Users'})","Done")
             $F.Close()
-        }catch{[Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)","Error")}
+        } catch { [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)","Error") }
     })
     $btnCancel.Add_Click({$F.Close()})
     $F.ShowDialog()
@@ -1199,7 +1221,7 @@ $bAll.Add_Click({
         New-SubLbl $AF "Confirm Password:" 15 180 360 18 $txtPrimary|Out-Null
         $tP2 = New-SubTxt $AF 15 200 360; $tP2.UseSystemPasswordChar=$true
         $cbAdm = New-Object Windows.Forms.CheckBox
-        $cbAdm.Text="Make this account a local Administrator"
+        $cbAdm.Text="local Administrator"
         $cbAdm.Location="15,234"; $cbAdm.Size="360,20"
         $cbAdm.ForeColor=$txtPrimary; $cbAdm.BackColor=[Drawing.Color]::Transparent
         $cbAdm.Font=New-Object Drawing.Font("Segoe UI",9); $cbAdm.Checked=$true
