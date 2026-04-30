@@ -301,7 +301,6 @@ $lblNetwork.Add_Click({ Show-NetworkManager })
 
 $lblUptime.Add_Click({
     $F = New-SubForm "Power Options" 310 132
-    New-SubLbl $F "What would you like to do?" 15 14 270 20 $txtPrimary 10|Out-Null
     $rb = New-SubBtn $F "Restart Now"    15 46 265 36 $btnAmb
     $sb = New-SubBtn $F "Shut Down Now"  15 90 265 36 $btnRed
     $rb.Add_Click({if([Windows.Forms.MessageBox]::Show("Restart now?","Confirm","YesNo") -eq "Yes"){Restart-Computer -Force}})
@@ -381,11 +380,16 @@ function Show-NetworkManager {
 
         $script:ry += 10
 
+        $script:ry += 10
+
+        # Full width Apply button
         $btnApply = New-Object Windows.Forms.Button
-        $btnApply.Text="Apply Static IP + DNS"; $btnApply.Location="16,$($script:ry)"; $btnApply.Size="190,34"
+        $btnApply.Text="  Apply Static IP + DNS"
+        $btnApply.Location="16,$($script:ry)"; $btnApply.Size="444,36"
         $btnApply.FlatStyle="Flat"; $btnApply.ForeColor=$btnTeal[1]; $btnApply.BackColor=$btnTeal[0]
         $btnApply.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
         $btnApply.FlatAppearance.BorderColor=$border; $btnApply.FlatAppearance.BorderSize=1
+        $btnApply.TextAlign="MiddleLeft"; $btnApply.Padding=New-Object Windows.Forms.Padding(8,0,0,0)
         $btnApply.Add_Click({
             $sel=$adapters[$adCombo.SelectedIndex]; $si=$sel.InterfaceAlias
             $newIP=$txtIP.Text.Trim(); $newPfx=$txtPrefix.Text.Trim()
@@ -393,27 +397,35 @@ function Show-NetworkManager {
             $newDNS=$txtDNS.Text.Trim() -split "[,\s]+" | Where-Object{$_}
             if([string]::IsNullOrWhiteSpace($newIP)-or[string]::IsNullOrWhiteSpace($newPfx)){
                 [Windows.Forms.MessageBox]::Show("IP and Subnet cannot be empty.","Error"); return}
-            if([Windows.Forms.MessageBox]::Show("Apply static IP to $si ?`n`nIP: $newIP/$newPfx`nGW: $newGW`nDNS: $($newDNS -join ', ')","Confirm Static IP","YesNo") -ne "Yes"){return}
+            if([Windows.Forms.MessageBox]::Show(
+                "Apply static IP to $si ?`n`nIP: $newIP/$newPfx`nGW: $newGW`nDNS: $($newDNS -join ', ')",
+                "Confirm Static IP","YesNo") -ne "Yes"){return}
             try{
                 Write-ToUI "Setting static IP on $si..." "Cyan"
                 Remove-NetIPAddress -InterfaceAlias $si -Confirm:$false -ErrorAction SilentlyContinue
                 Remove-NetRoute -InterfaceAlias $si -Confirm:$false -ErrorAction SilentlyContinue
                 New-NetIPAddress -InterfaceAlias $si -IPAddress $newIP -PrefixLength $newPfx `
                     -DefaultGateway $(if($newGW -ne "n/a"){$newGW}else{$null}) -ErrorAction Stop|Out-Null
-                if($newDNS.Count -gt 0){Set-DnsClientServerAddress -InterfaceAlias $si -ServerAddresses $newDNS -ErrorAction Stop}
+                if($newDNS.Count -gt 0){
+                    Set-DnsClientServerAddress -InterfaceAlias $si -ServerAddresses $newDNS -ErrorAction Stop}
                 Write-ToUI "Static IP applied: $newIP/$newPfx" "Lime"
-                [Windows.Forms.MessageBox]::Show("Static IP applied!","Done"); $F.Close(); Refresh-SystemInfo
+                [Windows.Forms.MessageBox]::Show("Static IP applied!","Done")
+                $F.Close(); Refresh-SystemInfo
             }catch{
                 Write-ToUI "Static IP failed: $($_.Exception.Message)" "Orange"
                 [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)","Error")}
         })
         $F.Controls.Add($btnApply)
+        $script:ry += 44
 
+        # DHCP and Network Connections side by side
         $btnDHCP = New-Object Windows.Forms.Button
-        $btnDHCP.Text="Switch to DHCP"; $btnDHCP.Location="214,$($script:ry)"; $btnDHCP.Size="140,34"
+        $btnDHCP.Text="  Switch to DHCP"
+        $btnDHCP.Location="16,$($script:ry)"; $btnDHCP.Size="214,34"
         $btnDHCP.FlatStyle="Flat"; $btnDHCP.ForeColor=$btnAmb[1]; $btnDHCP.BackColor=$btnAmb[0]
         $btnDHCP.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
         $btnDHCP.FlatAppearance.BorderColor=$border; $btnDHCP.FlatAppearance.BorderSize=1
+        $btnDHCP.TextAlign="MiddleLeft"; $btnDHCP.Padding=New-Object Windows.Forms.Padding(8,0,0,0)
         $btnDHCP.Add_Click({
             $sel=$adapters[$adCombo.SelectedIndex]; $si=$sel.InterfaceAlias
             if([Windows.Forms.MessageBox]::Show("Switch $si to DHCP?","Confirm DHCP","YesNo") -ne "Yes"){return}
@@ -422,24 +434,28 @@ function Show-NetworkManager {
                 Set-NetIPInterface -InterfaceAlias $si -Dhcp Enabled -ErrorAction Stop
                 Set-DnsClientServerAddress -InterfaceAlias $si -ResetServerAddresses -ErrorAction Stop
                 Write-ToUI "$si now using DHCP." "Lime"
-                [Windows.Forms.MessageBox]::Show("Switched to DHCP!","Done"); $F.Close(); Refresh-SystemInfo
+                [Windows.Forms.MessageBox]::Show("Switched to DHCP!","Done")
+                $F.Close(); Refresh-SystemInfo
             }catch{
                 Write-ToUI "DHCP switch failed: $($_.Exception.Message)" "Orange"
                 [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)","Error")}
         })
         $F.Controls.Add($btnDHCP)
+
+        $btnSettings = New-Object Windows.Forms.Button
+        $btnSettings.Text="  Open Network Connections"
+        $btnSettings.Location="238,$($script:ry)"; $btnSettings.Size="222,34"
+        $btnSettings.FlatStyle="Flat"; $btnSettings.ForeColor=$btnBlue[1]; $btnSettings.BackColor=$btnBlue[0]
+        $btnSettings.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
+        $btnSettings.FlatAppearance.BorderColor=$border; $btnSettings.FlatAppearance.BorderSize=1
+        $btnSettings.TextAlign="MiddleLeft"; $btnSettings.Padding=New-Object Windows.Forms.Padding(8,0,0,0)
+        $btnSettings.Add_Click({Start-Process "ncpa.cpl"; $F.Close()})
+        $F.Controls.Add($btnSettings)
+
         $script:ry += 42
     }
 
-    $btnSettings = New-Object Windows.Forms.Button
-    $btnSettings.Text="Open Network Connections"; $btnSettings.Location="16,$($script:ry)"; $btnSettings.Size="210,32"
-    $btnSettings.FlatStyle="Flat"; $btnSettings.ForeColor=$btnBlue[1]; $btnSettings.BackColor=$btnBlue[0]
-    $btnSettings.Font=New-Object Drawing.Font("Segoe UI",9,[Drawing.FontStyle]::Bold)
-    $btnSettings.FlatAppearance.BorderColor=$border; $btnSettings.FlatAppearance.BorderSize=1
-    $btnSettings.Add_Click({Start-Process "ncpa.cpl"; $F.Close()})
-    $F.Controls.Add($btnSettings)
-
-    $F.Size = "480,$($script:ry+80)"
+    $F.Size = "480,$($script:ry+30)"
     $F.ShowDialog()
 }
 
@@ -644,12 +660,12 @@ $bannerTimer.Start()
 # ============================================================
 # Start at 125, Height 36
 $bAll = New-Object Windows.Forms.Button
-$bAll.Text="  RUN ALL — Full Provision"
+$bAll.Text="RUN ALL — Full Provision"
 $bAll.Location="10,125"; $bAll.Size="470,36"
 $bAll.FlatStyle="Flat"; $bAll.ForeColor=$btnRun[1]; $bAll.BackColor=$btnRun[0]
 $bAll.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
 $bAll.FlatAppearance.BorderColor=$border; $bAll.FlatAppearance.BorderSize=1
-$bAll.TextAlign="MiddleLeft"; $bAll.Padding=New-Object Windows.Forms.Padding(10,0,0,0)
+$bAll.TextAlign = "MiddleCenter"; $bAll.Padding=New-Object Windows.Forms.Padding(0,0,0,0)
 $bAll.Anchor="Top,Left,Right"
 $Form.Controls.Add($bAll)
 
@@ -705,46 +721,110 @@ function Run-Debloat {
 }
 
 function Run-EssentialTweaks {
-    Write-ToUI "Applying essential tweaks..." "Cyan"
-    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -ErrorAction SilentlyContinue
-    Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
-    $ads="HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
-    "SubscribedContent-310093Enabled","SubscribedContent-353696Enabled",
-    "RotatingLockScreenOverlayEnabled","SubscribedContent-338387Enabled"|ForEach-Object{
-        Set-ItemProperty -Path $ads -Name $_ -Value 0 -ErrorAction SilentlyContinue}
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo"          "Enabled"                  0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds"                    "ShellFeedsTaskbarViewMode" 2 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"        "PeopleBand"               0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer"        "HideSCAMeetNow"           1 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings"           "IsDynamicSearchBoxPresent" 0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"                   "BingSearchEnabled"        0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge"                                   "StartupBoostEnabled"      0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"                       "ActiveHoursStart"         8 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"                       "ActiveHoursEnd"          17 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"        "HideFileExt"              0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"        "AutoCheckSelect"          0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"        "ShowTaskViewButton"        0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"        "TaskbarDa"                0 -ErrorAction SilentlyContinue
-    powercfg.exe /hibernate off
-    try{Set-TimeZone -Id "New Zealand Standard Time" -ErrorAction Stop; Write-ToUI "Timezone set to NZ." "Lime"}
-    catch{Write-ToUI "Timezone change failed." "Orange"}
-    Write-ToUI "Clearing startup programs..."
+   Write-ToUI "Clearing startup programs..." "Cyan"
+
+    # --- Standard Run key cleanup ---
     @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
       "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run")|ForEach-Object{
         $p=$_
         (Get-ItemProperty -Path $p -ErrorAction SilentlyContinue).PSObject.Properties|
             Where-Object{$_.Name -notlike "PS*"}|ForEach-Object{
-                Write-ToUI "  Disabling: $($_.Name)" "Orange"
+                Write-ToUI "  Disabling run key: $($_.Name)" "Orange"
                 Remove-ItemProperty -Path $p -Name $_.Name -ErrorAction SilentlyContinue}}
-    $wp="HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
-    if(-not(Test-Path $wp)){New-Item -Path $wp -Force|Out-Null}
-    Set-ItemProperty $wp "AllowNewsAndInterests" 0 -ErrorAction SilentlyContinue
-    $rc="HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
-    if(-not(Test-Path $rc)){New-Item -Path $rc -Force|Out-Null}
-    Set-ItemProperty $rc "(default)" "" -ErrorAction SilentlyContinue
-    Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2; Start-Process "explorer.exe"
-    Write-ToUI "All essential tweaks complete!" "Lime"
+
+    # --- Microsoft Edge autostart ---
+    Write-ToUI "Disabling Edge autostart..." "Orange"
+    # Edge startup boost (launches invisible on boot)
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled"  0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Edge\SmartScreenEnabled" "(default)"  0 -ErrorAction SilentlyContinue
+    # Edge update tasks that relaunch it
+    $edgeTasks = @(
+        "MicrosoftEdgeUpdateTaskMachineCore",
+        "MicrosoftEdgeUpdateTaskMachineUA",
+        "MicrosoftEdgeShadowStackRollbackTask"
+    )
+    foreach($t in $edgeTasks){
+        Disable-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue | Out-Null
+        Write-ToUI "  Disabled task: $t" "Orange"
+    }
+    # Edge run key
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Microsoft Edge" -ErrorAction SilentlyContinue
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MicrosoftEdgeAutoLaunch*" -ErrorAction SilentlyContinue
+
+    # --- OneDrive autostart ---
+    Write-ToUI "Disabling OneDrive autostart..." "Orange"
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDrive" -ErrorAction SilentlyContinue
+    # OneDrive also registers via a deeper path
+    $odRunPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    Get-ItemProperty $odRunPath -ErrorAction SilentlyContinue |
+        Select-Object -Property * | ForEach-Object {
+            $_.PSObject.Properties | Where-Object {$_.Value -like "*OneDrive*"} | ForEach-Object {
+                Write-ToUI "  Removing OneDrive run entry: $($_.Name)" "Orange"
+                Remove-ItemProperty $odRunPath -Name $_.Name -ErrorAction SilentlyContinue
+            }
+        }
+    # Disable OneDrive scheduled task
+    Disable-ScheduledTask -TaskPath "\Microsoft\Windows\OneDrive\" -TaskName "*" -ErrorAction SilentlyContinue | Out-Null
+    # Prevent OneDrive from being set up on new accounts via policy
+    $odPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"
+    if(-not(Test-Path $odPolicy)){New-Item -Path $odPolicy -Force|Out-Null}
+    Set-ItemProperty $odPolicy "DisableFileSyncNGSC" 1 -ErrorAction SilentlyContinue
+
+    # --- Teams autostart (classic and new) ---
+    Write-ToUI "Disabling Teams autostart..." "Orange"
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "com.squirrel.Teams.Teams" -ErrorAction SilentlyContinue
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Teams" -ErrorAction SilentlyContinue
+    # New Teams (ms-teams) startup entry
+    $teamsStartup = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    Get-ItemProperty $teamsStartup -ErrorAction SilentlyContinue |
+        Select-Object -Property * | ForEach-Object {
+            $_.PSObject.Properties | Where-Object {$_.Value -like "*Teams*" -or $_.Value -like "*ms-teams*"} | ForEach-Object {
+                Write-ToUI "  Removing Teams run entry: $($_.Name)" "Orange"
+                Remove-ItemProperty $teamsStartup -Name $_.Name -ErrorAction SilentlyContinue
+            }
+        }
+    # Teams machine-wide policy
+    $teamsPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftTeams"
+    if(-not(Test-Path $teamsPolicy)){New-Item -Path $teamsPolicy -Force|Out-Null}
+    Set-ItemProperty $teamsPolicy "DisableAutoStart" 1 -ErrorAction SilentlyContinue
+    # Disable Teams scheduled tasks
+    Disable-ScheduledTask -TaskPath "\Microsoft\Windows\Teams\" -TaskName "*" -ErrorAction SilentlyContinue | Out-Null
+
+    # --- Copilot disable ---
+    Write-ToUI "Disabling Copilot..." "Orange"
+    $copilotPolicy = "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot"
+    if(-not(Test-Path $copilotPolicy)){New-Item -Path $copilotPolicy -Force|Out-Null}
+    Set-ItemProperty $copilotPolicy "TurnOffWindowsCopilot" 1 -ErrorAction SilentlyContinue
+    # Machine-wide policy
+    $copilotMachine = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot"
+    if(-not(Test-Path $copilotMachine)){New-Item -Path $copilotMachine -Force|Out-Null}
+    Set-ItemProperty $copilotMachine "TurnOffWindowsCopilot" 1 -ErrorAction SilentlyContinue
+    # Copilot taskbar button
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0 -ErrorAction SilentlyContinue
+    # Remove Copilot run key if present
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Copilot" -ErrorAction SilentlyContinue
+
+    # --- Disable all remaining scheduled tasks that auto-launch Microsoft apps ---
+    Write-ToUI "Cleaning Microsoft auto-launch scheduled tasks..." "Orange"
+    $tasksToDisable = @(
+        @{Path="\Microsoft\Windows\Application Experience\"; Name="MareBackup"},
+        @{Path="\Microsoft\Windows\Application Experience\"; Name="Microsoft Compatibility Appraiser"},
+        @{Path="\Microsoft\Windows\Application Experience\"; Name="StartupAppTask"},
+        @{Path="\Microsoft\Windows\Clip\";                   Name="LicenseAcquisition"},
+        @{Path="\Microsoft\Windows\CloudExperienceHost\";    Name="CreateObjectTask"},
+        @{Path="\Microsoft\Windows\HelloFace\";              Name="FODCleanupTask"},
+        @{Path="\Microsoft\Windows\Maps\";                   Name="MapsToastTask"},
+        @{Path="\Microsoft\Windows\Maps\";                   Name="MapsUpdateTask"},
+        @{Path="\Microsoft\Windows\Shell\";                  Name="FamilySafetyMonitor"},
+        @{Path="\Microsoft\Windows\Shell\";                  Name="FamilySafetyRefreshTask"}
+    )
+    foreach($task in $tasksToDisable){
+        Disable-ScheduledTask -TaskPath $task.Path -TaskName $task.Name -ErrorAction SilentlyContinue | Out-Null
+        Write-ToUI "  Disabled task: $($task.Name)" "Orange"
+    }
+
+    Write-ToUI "Startup cleanup complete." "Lime"
 }
 
 function Run-VendorPurge {
