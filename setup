@@ -113,7 +113,7 @@ $Form.AutoScaleMode = "Dpi"
 
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $optW = [Math]::Min(520, [Math]::Max(480, $screen.Width  * 0.35))
-$optH = [Math]::Min(820, [Math]::Max(680, $screen.Height * 0.90))
+$optH = [Math]::Min(680, [Math]::Max(680, $screen.Height * 0.90))
 $Form.Size = "$optW,$optH"
 $Form.MinimumSize = "480,680"
 
@@ -296,7 +296,6 @@ $lblDomain.Add_Click({
     $JF.ShowDialog()
     Refresh-SystemInfo
 })
-
 
 $lblNetwork.Add_Click({ Show-NetworkManager })
 
@@ -572,8 +571,8 @@ function Show-DomainTools {
 # OUTPUT CONSOLE
 # ============================================================
 $ConsoleOutput = New-Object Windows.Forms.RichTextBox
-$ConsoleOutput.Location = "10,540"
-$ConsoleOutput.Size = "470,180"
+$ConsoleOutput.Location = "10,440"
+$ConsoleOutput.Size = "470,190"
 $ConsoleOutput.BackColor = $bgConsole
 $ConsoleOutput.ForeColor = $txtConsole
 $ConsoleOutput.ReadOnly = $true
@@ -641,13 +640,12 @@ $script:bannerIndex=0
 $bannerTimer.Start()
 
 # ============================================================
-# MAIN BUTTONS
-# Note: Section labels added BEFORE their buttons, then
-# BringToFront() called — this fixes the overlap issue
+# MAIN BUTTONS - Standardized Spacing (4px gaps)
 # ============================================================
+# Start at 125, Height 36
 $bAll = New-Object Windows.Forms.Button
-$bAll.Text="  RUN ALL -- Full Provision"
-$bAll.Location="10,125"; $bAll.Size="470,38"
+$bAll.Text="  RUN ALL — Full Provision"
+$bAll.Location="10,125"; $bAll.Size="470,36"
 $bAll.FlatStyle="Flat"; $bAll.ForeColor=$btnRun[1]; $bAll.BackColor=$btnRun[0]
 $bAll.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
 $bAll.FlatAppearance.BorderColor=$border; $bAll.FlatAppearance.BorderSize=1
@@ -655,21 +653,20 @@ $bAll.TextAlign="MiddleLeft"; $bAll.Padding=New-Object Windows.Forms.Padding(10,
 $bAll.Anchor="Top,Left,Right"
 $Form.Controls.Add($bAll)
 
-# SYSTEM CLEANUP
-$b1  = New-Btn $Form "  SYSTEM SANITIZE — Debloat & Tweaks"    10 190 470 36 $btnRed
-$b2  = New-Btn $Form "  VENDOR PURGE — Remove Vendor Bloat" 10 232 470 36 $btnAmb
-$sl1.BringToFront()
-
-# CONFIGURATION
-$b3  = New-Btn $Form "  APPLICATIONS" 10 297 470 36 $btnBlue
-$b4  = New-Btn $Form "  ACCOUNTS"        10 339 470 36 $btnRun
-$b5  = New-Btn $Form "  NETWORK"          10 381 470 36 $btnTeal
-$sl2.BringToFront()
-
-$b6  = New-Btn $Form "  DOMAIN TOOLS"       10 446 470 36 $btnTeal
-$b7  = New-Btn $Form "  DIAGNOSTICS" 10 488 470 36 $btnAmb
-$sl3.BringToFront()
-
+# 125 + 36 + 4 = 165
+$b1 = New-Btn $Form "  SYSTEM SANITIZE — Debloat & Tweaks"    10 165 470 34 $btnRed
+# 165 + 34 + 4 = 203
+$b2 = New-Btn $Form "  VENDOR PURGE — Remove Vendor Bloat" 10 203 470 34 $btnAmb
+# 203 + 34 + 4 = 241
+$b3 = New-Btn $Form "  APPLICATIONS" 10 241 470 34 $btnBlue
+# 241 + 34 + 4 = 279
+$b4 = New-Btn $Form "  ACCOUNTS"         10 279 470 34 $btnRun
+# 279 + 34 + 4 = 317
+$b5 = New-Btn $Form "  NETWORK"           10 317 470 34 $btnTeal
+# 317 + 34 + 4 = 355
+$b6 = New-Btn $Form "  DOMAIN TOOLS"       10 355 470 34 $btnPurp
+# 355 + 34 + 4 = 393
+$b7 = New-Btn $Form "  SYSTEM DIAGNOSTICS" 10 393 470 34 $btnAmb
 # ============================================================
 # RESIZE HANDLER
 # ============================================================
