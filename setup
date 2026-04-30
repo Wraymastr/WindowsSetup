@@ -112,7 +112,7 @@ $Form.MaximizeBox = $false
 $Form.AutoScaleMode = "Dpi"
 
 $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$optW = [Math]::Min(520, [Math]::Max(480, $screen.Width  * 0.35))
+$optW = [Math]::Min(480, [Math]::Max(480, $screen.Width  * 0.35))
 $optH = [Math]::Min(680, [Math]::Max(680, $screen.Height * 0.90))
 $Form.Size = "$optW,$optH"
 $Form.MinimumSize = "480,680"
