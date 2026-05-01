@@ -587,7 +587,7 @@ function Show-DomainTools {
 # OUTPUT CONSOLE
 # ============================================================
 $ConsoleOutput = New-Object Windows.Forms.RichTextBox
-$ConsoleOutput.Location = "10,440"
+$ConsoleOutput.Location = "10,475"
 $ConsoleOutput.Size = "470,190"
 $ConsoleOutput.BackColor = $bgConsole
 $ConsoleOutput.ForeColor = $txtConsole
@@ -683,13 +683,15 @@ $b5 = New-Btn $Form "  NETWORK"           10 317 470 34 $btnTeal
 $b6 = New-Btn $Form "  DOMAIN TOOLS"       10 355 470 34 $btnPurp
 # 355 + 34 + 4 = 393
 $b7 = New-Btn $Form "  SYSTEM DIAGNOSTICS" 10 393 470 34 $btnAmb
+
+$b8 = New-Btn $Form "  PRINTER SETUP" 10 431 470 34 $btnBlue
 # ============================================================
 # RESIZE HANDLER
 # ============================================================
 $Form.Add_Resize({
     $w = $Form.ClientSize.Width - 20
     $InfoPanel.Width = $w
-    foreach($btn in @($bAll,$b1,$b2,$b3,$b4,$b5,$b6,$b7)){$btn.Width=$w}
+    foreach($btn in @($bAll,$b1,$b2,$b3,$b4,$b5,$b6,$b7,$b8)){$btn.Width=$w}
     $ConsoleOutput.Width = $w
     foreach($sl in @($sl1,$sl2,$sl3)){$sl.Width=$w; $sl.BringToFront()}
 })
@@ -1126,6 +1128,252 @@ function Run-Installs($AppList,$DoChrome,$DoVLC) {
             }
 }
 
+function Show-PrinterSetup {
+    $F = New-SubForm "Printer Setup" 50 60
+    $online = Test-Connection -ComputerName "1.1.1.1" -Count 1 -Quiet -ErrorAction SilentlyContinue
+
+    # Status banner
+    $banner = New-Object Windows.Forms.Panel
+    $banner.Location="0,0"; $banner.Size="480,36"; $banner.BorderStyle="None"
+    $banner.BackColor = [Drawing.Color]::FromArgb(30,37,48)
+    $F.Controls.Add($banner)
+    $bannerLbl = New-Object Windows.Forms.Label
+    $bannerLbl.Text = "  PRINTER SETUP — Add Network or Local Printer"
+    $bannerLbl.Location="0,0"; $bannerLbl.Size="480,36"
+    $bannerLbl.ForeColor = [Drawing.Color]::FromArgb(112,152,200)
+    $bannerLbl.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
+    $bannerLbl.TextAlign="MiddleLeft"; $bannerLbl.BackColor=[Drawing.Color]::Transparent
+    $banner.Controls.Add($bannerLbl)
+
+    $script:py = 52
+
+    function P-Row($key,$val="") {
+        $kl=New-Object Windows.Forms.Label
+        $kl.Text=$key; $kl.Location="16,$($script:py)"; $kl.Size="110,22"
+        $kl.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
+        $kl.Font=New-Object Drawing.Font("Consolas",8)
+        $kl.TextAlign="MiddleLeft"
+        $F.Controls.Add($kl)
+        $tb=New-Object Windows.Forms.TextBox
+        $tb.Location="130,$($script:py)"; $tb.Size="330,24"
+        $tb.BackColor=$bgInput; $tb.ForeColor=$txtPrimary
+        $tb.Font=New-Object Drawing.Font("Consolas",9)
+        $tb.Text=$val; $F.Controls.Add($tb)
+        $script:py+=32; return $tb
+    }
+
+    function P-Label($text) {
+        $l=New-Object Windows.Forms.Label
+        $l.Text=$text; $l.Location="16,$($script:py)"; $l.Size="444,13"
+        $l.ForeColor=$txtMuted; $l.BackColor=[Drawing.Color]::Transparent
+        $l.Font=New-Object Drawing.Font("Segoe UI",7,[Drawing.FontStyle]::Bold)
+        $F.Controls.Add($l); $script:py+=18
+    }
+
+    # Fields
+    P-Label "PRINTER DETAILS"
+    $txtName = P-Row "Printer Name :" "Staff Printer"
+    $txtIP   = P-Row "IP Address   :"
+
+    # Protocol dropdown row
+    $klProt=New-Object Windows.Forms.Label
+    $klProt.Text="Protocol     :"; $klProt.Location="16,$($script:py)"; $klProt.Size="110,24"
+    $klProt.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
+    $klProt.Font=New-Object Drawing.Font("Consolas",8); $klProt.TextAlign="MiddleLeft"
+    $F.Controls.Add($klProt)
+
+    $cbProt=New-Object Windows.Forms.ComboBox
+    $cbProt.Location="130,$($script:py)"; $cbProt.Size="330,24"
+    $cbProt.DropDownStyle="DropDownList"
+    $cbProt.BackColor=$bgInput; $cbProt.ForeColor=$txtPrimary
+    $cbProt.Font=New-Object Drawing.Font("Consolas",9)
+    @("RAW (Port 9100) — most common",
+      "LPR — older printers and print servers",
+      "IPP — internet printing protocol",
+      "WSD — plug and play network") | ForEach-Object { $cbProt.Items.Add($_)|Out-Null }
+    $cbProt.SelectedIndex=0
+    $F.Controls.Add($cbProt)
+    $script:py+=32
+
+    # Driver section
+    P-Label "DRIVER"
+
+    # Driver name field + browse button side by side
+    $klDrv=New-Object Windows.Forms.Label
+    $klDrv.Text="Driver Name  :"; $klDrv.Location="16,$($script:py)"; $klDrv.Size="110,24"
+    $klDrv.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
+    $klDrv.Font=New-Object Drawing.Font("Consolas",8); $klDrv.TextAlign="MiddleLeft"
+    $F.Controls.Add($klDrv)
+
+    $txtDriver=New-Object Windows.Forms.TextBox
+    $txtDriver.Location="130,$($script:py)"; $txtDriver.Size="218,24"
+    $txtDriver.BackColor=$bgInput; $txtDriver.ForeColor=$txtPrimary
+    $txtDriver.Font=New-Object Drawing.Font("Consolas",9)
+    $txtDriver.Text=""; $F.Controls.Add($txtDriver)
+
+    $btnBrowse=New-Object Windows.Forms.Button
+    $btnBrowse.Text="Browse .inf"; $btnBrowse.Location="356,$($script:py)"; $btnBrowse.Size="104,24"
+    $btnBrowse.FlatStyle="Flat"; $btnBrowse.ForeColor=$btnBlue[1]; $btnBrowse.BackColor=$btnBlue[0]
+    $btnBrowse.Font=New-Object Drawing.Font("Segoe UI",8,[Drawing.FontStyle]::Bold)
+    $btnBrowse.FlatAppearance.BorderColor=$border; $btnBrowse.FlatAppearance.BorderSize=1
+    $script:selectedInf = ""
+    $btnBrowse.Add_Click({
+        $dlg=New-Object Windows.Forms.OpenFileDialog
+        $dlg.Title="Select Printer Driver (.inf)"
+        $dlg.Filter="Driver files (*.inf)|*.inf|All files (*.*)|*.*"
+        $dlg.InitialDirectory="\\$env:USERDOMAIN\NETLOGON"  # opens to domain share if available, else falls back
+        if($dlg.ShowDialog() -eq "OK"){
+            $script:selectedInf = $dlg.FileName
+            # Auto-fill driver name from inf if possible
+            $infContent = Get-Content $dlg.FileName -ErrorAction SilentlyContinue
+            $driverLine = $infContent | Where-Object {$_ -match "^DriverVer"} | Select-Object -First 1
+            $nameLine   = $infContent | Where-Object {$_ -match '^\[Strings\]'} | Select-Object -First 1
+            # Try to extract a friendly name from the inf
+            $mfgLine = $infContent | Where-Object {$_ -match "^[A-Z].+=.*INSTALL"} | Select-Object -First 1
+            if($mfgLine -and $mfgLine -match '"([^"]+)"'){
+                $txtDriver.Text = $Matches[1]
+            } else {
+                $txtDriver.Text = [System.IO.Path]::GetFileNameWithoutExtension($dlg.FileName)
+            }
+            Write-ToUI "Driver selected: $($dlg.FileName)" "Cyan"
+        }
+    })
+    $F.Controls.Add($btnBrowse)
+    $script:py+=32
+
+    # UNC path field for network share drivers
+    $klUnc=New-Object Windows.Forms.Label
+    $klUnc.Text="Or UNC path  :"; $klUnc.Location="16,$($script:py)"; $klUnc.Size="110,24"
+    $klUnc.ForeColor=[Drawing.Color]::FromArgb(80,80,100)
+    $klUnc.Font=New-Object Drawing.Font("Consolas",8); $klUnc.TextAlign="MiddleLeft"
+    $F.Controls.Add($klUnc)
+    $txtUnc=New-Object Windows.Forms.TextBox
+    $txtUnc.Location="130,$($script:py)"; $txtUnc.Size="330,24"
+    $txtUnc.BackColor=$bgInput; $txtUnc.ForeColor=$txtPrimary
+    $txtUnc.Font=New-Object Drawing.Font("Consolas",9)
+    $txtUnc.Text="\\server\Drivers\HP_LaserJet\hpxxx.inf"
+    $txtUnc.ForeColor=$txtMuted  # hint color
+    $txtUnc.Add_GotFocus({ if($txtUnc.Text -like "\\server\*"){$txtUnc.Text=""; $txtUnc.ForeColor=$txtPrimary} })
+    $txtUnc.Add_LostFocus({ if($txtUnc.Text -eq ""){$txtUnc.Text="\\server\Drivers\HP_LaserJet\hpxxx.inf"; $txtUnc.ForeColor=$txtMuted} })
+    $F.Controls.Add($txtUnc)
+    $script:py+=40
+
+    # Add Printer button — full width
+    $btnAdd=New-Object Windows.Forms.Button
+    $btnAdd.Text="  Add Printer"
+    $btnAdd.Location="16,$($script:py)"; $btnAdd.Size="444,36"
+    $btnAdd.FlatStyle="Flat"; $btnAdd.ForeColor=$btnTeal[1]; $btnAdd.BackColor=$btnTeal[0]
+    $btnAdd.Font=New-Object Drawing.Font("Segoe UI",10,[Drawing.FontStyle]::Bold)
+    $btnAdd.FlatAppearance.BorderColor=$border; $btnAdd.FlatAppearance.BorderSize=1
+    $btnAdd.TextAlign="MiddleLeft"; $btnAdd.Padding=New-Object Windows.Forms.Padding(10,0,0,0)
+    $btnAdd.Add_Click({
+        $pName  = $txtName.Text.Trim()
+        $pIP    = $txtIP.Text.Trim()
+        $pPort  = "IP_$pIP"
+        $dName  = $txtDriver.Text.Trim()
+        $infPath= if($script:selectedInf -ne "")  {$script:selectedInf}
+                  elseif($txtUnc.ForeColor -ne $txtMuted -and $txtUnc.Text.Trim() -ne "")
+                         {$txtUnc.Text.Trim()}
+                  else   {""}
+        $proto  = switch($cbProt.SelectedIndex){
+            0 {"RAW"}
+            1 {"LPR"}
+            2 {"IPP"}
+            3 {"WSD"}
+        }
+
+        # Validate
+        if([string]::IsNullOrWhiteSpace($pName)){
+            [Windows.Forms.MessageBox]::Show("Printer name cannot be empty.","Error"); return}
+        if([string]::IsNullOrWhiteSpace($pIP) -or $pIP -notmatch "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"){
+            [Windows.Forms.MessageBox]::Show("Enter a valid IP address.","Error"); return}
+        if([string]::IsNullOrWhiteSpace($dName)){
+            [Windows.Forms.MessageBox]::Show("Enter a driver name.","Error"); return}
+
+        $btnAdd.Enabled=$false; $btnAdd.Text="  Adding printer..."
+
+        try {
+            # Step 1 — Install driver from inf if provided
+            if($infPath -ne ""){
+                Write-ToUI "Installing driver from: $infPath" "Cyan"
+                $pnpResult = & pnputil.exe /add-driver $infPath /install 2>&1
+                Write-ToUI "  $pnpResult" "Gray"
+                Write-ToUI "  Driver installed." "Lime"
+            } else {
+                Write-ToUI "No .inf provided — using existing driver: $dName" "Yellow"
+            }
+
+            # Step 2 — Create port if it doesn't already exist
+            $existingPort = Get-PrinterPort -Name $pPort -ErrorAction SilentlyContinue
+            if(-not $existingPort){
+                Write-ToUI "Creating printer port: $pPort ($pIP)..." "Cyan"
+                if($proto -eq "LPR"){
+                    Add-PrinterPort -Name $pPort -PrinterHostAddress $pIP -PortNumber 515 -ErrorAction Stop
+                } else {
+                    Add-PrinterPort -Name $pPort -PrinterHostAddress $pIP -ErrorAction Stop
+                }
+                Write-ToUI "  Port created." "Lime"
+            } else {
+                Write-ToUI "  Port already exists, reusing." "Yellow"
+            }
+
+            # Step 3 — Add the printer
+            Write-ToUI "Adding printer '$pName'..." "Cyan"
+            $existing = Get-Printer -Name $pName -ErrorAction SilentlyContinue
+            if($existing){
+                Write-ToUI "  Printer '$pName' already exists — removing and re-adding." "Yellow"
+                Remove-Printer -Name $pName -ErrorAction SilentlyContinue
+            }
+            Add-Printer -Name $pName -DriverName $dName -PortName $pPort -ErrorAction Stop
+            Write-ToUI "  Printer '$pName' added successfully!" "Lime"
+
+            # Step 4 — Quick connectivity test
+            Write-ToUI "Testing connectivity to $pIP..." "Cyan"
+            $ping = Test-Connection -ComputerName $pIP -Count 1 -Quiet -ErrorAction SilentlyContinue
+            if($ping){Write-ToUI "  Printer is reachable on the network." "Lime"}
+            else{Write-ToUI "  Warning: Could not ping $pIP — check network connection." "Orange"}
+
+            [Windows.Forms.MessageBox]::Show(
+                "Printer '$pName' added!`n`nIP: $pIP`nProtocol: $proto`nDriver: $dName`n`nYou may want to print a test page from Settings > Printers.",
+                "Printer Added")
+            $F.Close()
+
+        } catch {
+            Write-ToUI "Failed to add printer: $($_.Exception.Message)" "Orange"
+            [Windows.Forms.MessageBox]::Show("Failed: $($_.Exception.Message)`n`nMake sure the driver name exactly matches what is installed.","Error")
+        }
+
+        $btnAdd.Enabled=$true; $btnAdd.Text="  Add Printer"
+    })
+    $F.Controls.Add($btnAdd)
+    $script:py+=44
+
+    # Open Printers shortcut — smaller secondary button
+    $btnPrinters=New-Object Windows.Forms.Button
+    $btnPrinters.Text="  Open Printers & Scanners"
+    $btnPrinters.Location="16,$($script:py)"; $btnPrinters.Size="214,30"
+    $btnPrinters.FlatStyle="Flat"; $btnPrinters.ForeColor=$btnAmb[1]; $btnPrinters.BackColor=$btnAmb[0]
+    $btnPrinters.Font=New-Object Drawing.Font("Segoe UI",8,[Drawing.FontStyle]::Bold)
+    $btnPrinters.FlatAppearance.BorderColor=$border; $btnPrinters.FlatAppearance.BorderSize=1
+    $btnPrinters.TextAlign="MiddleLeft"; $btnPrinters.Padding=New-Object Windows.Forms.Padding(8,0,0,0)
+    $btnPrinters.Add_Click({ Start-Process "ms-settings:printers" })
+    $F.Controls.Add($btnPrinters)
+
+    $btnPrintMgmt=New-Object Windows.Forms.Button
+    $btnPrintMgmt.Text="  Print Management"
+    $btnPrintMgmt.Location="238,$($script:py)"; $btnPrintMgmt.Size="222,30"
+    $btnPrintMgmt.FlatStyle="Flat"; $btnPrintMgmt.ForeColor=$btnBlue[1]; $btnPrintMgmt.BackColor=$btnBlue[0]
+    $btnPrintMgmt.Font=New-Object Drawing.Font("Segoe UI",8,[Drawing.FontStyle]::Bold)
+    $btnPrintMgmt.FlatAppearance.BorderColor=$border; $btnPrintMgmt.FlatAppearance.BorderSize=1
+    $btnPrintMgmt.TextAlign="MiddleLeft"; $btnPrintMgmt.Padding=New-Object Windows.Forms.Padding(8,0,0,0)
+    $btnPrintMgmt.Add_Click({ Start-Process "printmanagement.msc" -ErrorAction SilentlyContinue })
+    $F.Controls.Add($btnPrintMgmt)
+
+    $script:py+=38
+    $F.Size="480,$($script:py+40)"
+    $F.ShowDialog()
+}
+
 # ============================================================
 # APP PICKER
 # ============================================================
@@ -1517,6 +1765,11 @@ $b7.Add_Click({
     })
 
     $DF.ShowDialog()
+})
+
+$b8.Add_Click({
+    [System.Media.SystemSounds]::Asterisk.Play()
+    Show-PrinterSetup
 })
 
 # ============================================================
