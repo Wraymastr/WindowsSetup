@@ -721,111 +721,255 @@ function Run-Debloat {
 }
 
 function Run-EssentialTweaks {
-   Write-ToUI "Clearing startup programs..." "Cyan"
+    Write-ToUI "=== ESSENTIAL TWEAKS STARTING ===" "Yellow"
 
-    # --- Standard Run key cleanup ---
+    # --- Telemetry & Privacy ---
+    Write-ToUI "Disabling telemetry..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -ErrorAction SilentlyContinue
+    Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
+    Write-ToUI "  Telemetry disabled." "Lime"
+
+    $ads="HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+    "SubscribedContent-310093Enabled","SubscribedContent-353696Enabled",
+    "RotatingLockScreenOverlayEnabled","SubscribedContent-338387Enabled" | ForEach-Object {
+        Set-ItemProperty -Path $ads -Name $_ -Value 0 -ErrorAction SilentlyContinue
+    }
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0 -ErrorAction SilentlyContinue
+    Write-ToUI "  Ads and tailored experiences disabled." "Lime"
+
+    # --- Bing Search ---
+    Write-ToUI "Disabling Bing in Start Menu..." "Cyan"
+    $searchPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"
+    if(-not(Test-Path $searchPath)){New-Item -Path $searchPath -Force|Out-Null}
+    Set-ItemProperty $searchPath "BingSearchEnabled"        0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchPath "CortanaConsent"           0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchPath "AllowSearchToUseLocation" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings" "IsDynamicSearchBoxPresent" 0 -ErrorAction SilentlyContinue
+    $searchPol = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
+    if(-not(Test-Path $searchPol)){New-Item -Path $searchPol -Force|Out-Null}
+    Set-ItemProperty $searchPol "DisableSearchBoxSuggestions" 1 -ErrorAction SilentlyContinue
+    $machinePol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+    if(-not(Test-Path $machinePol)){New-Item -Path $machinePol -Force|Out-Null}
+    Set-ItemProperty $machinePol "DisableWebSearch"      1 -ErrorAction SilentlyContinue
+    Set-ItemProperty $machinePol "ConnectedSearchUseWeb" 0 -ErrorAction SilentlyContinue
+    Write-ToUI "  Bing search disabled." "Lime"
+
+    # --- Taskbar ---
+    Write-ToUI "Cleaning taskbar..." "Cyan"
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds"             "ShellFeedsTaskbarViewMode" 2 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "PeopleBand"                0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow"            1 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowTaskViewButton"         0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa"                 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton"         0 -ErrorAction SilentlyContinue
+    Write-ToUI "  Taskbar cleaned." "Lime"
+
+    # --- Widgets ---
+    Write-ToUI "Disabling Widgets..." "Cyan"
+    $wp="HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
+    if(-not(Test-Path $wp)){New-Item -Path $wp -Force|Out-Null}
+    Set-ItemProperty $wp "AllowNewsAndInterests" 0 -ErrorAction SilentlyContinue
+    Write-ToUI "  Widgets disabled." "Lime"
+
+    # --- Edge ---
+    Write-ToUI "Disabling Edge startup boost..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled"   0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled"  0 -ErrorAction SilentlyContinue
+    Write-ToUI "  Edge startup boost disabled." "Lime"
+
+    # --- Update hours ---
+    Write-ToUI "Setting update active hours 8am-5pm..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" 8  -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd"   17 -ErrorAction SilentlyContinue
+    Write-ToUI "  Active hours set." "Lime"
+
+    # --- Explorer tweaks ---
+    Write-ToUI "Applying Explorer tweaks..." "Cyan"
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt"    0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "AutoCheckSelect" 0 -ErrorAction SilentlyContinue
+    Write-ToUI "  File extensions visible, checkboxes disabled." "Lime"
+
+    # --- Hibernate ---
+    Write-ToUI "Disabling hibernation..." "Cyan"
+    powercfg.exe /hibernate off 2>&1|Out-Null
+    Write-ToUI "  Hibernation disabled." "Lime"
+
+    # --- Timezone ---
+    Write-ToUI "Setting timezone to NZ..." "Cyan"
+    try { Set-TimeZone -Id "New Zealand Standard Time" -ErrorAction Stop; Write-ToUI "  Timezone set." "Lime" }
+    catch { Write-ToUI "  Timezone change failed — set manually." "Orange" }
+
+    # --- Right-click menu ---
+    Write-ToUI "Restoring Windows 10 right-click menu..." "Cyan"
+    $rc="HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
+    if(-not(Test-Path $rc)){New-Item -Path $rc -Force|Out-Null}
+    Set-ItemProperty $rc "(default)" "" -ErrorAction SilentlyContinue
+    Write-ToUI "  Right-click menu restored." "Lime"
+
+    # --- Run key cleanup (startup programs) ---
+    Write-ToUI "Clearing startup Run keys..." "Cyan"
     @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
-      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run")|ForEach-Object{
+      "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run") | ForEach-Object {
         $p=$_
-        (Get-ItemProperty -Path $p -ErrorAction SilentlyContinue).PSObject.Properties|
-            Where-Object{$_.Name -notlike "PS*"}|ForEach-Object{
-                Write-ToUI "  Disabling run key: $($_.Name)" "Orange"
-                Remove-ItemProperty -Path $p -Name $_.Name -ErrorAction SilentlyContinue}}
+        (Get-ItemProperty -Path $p -ErrorAction SilentlyContinue).PSObject.Properties |
+            Where-Object {$_.Name -notlike "PS*"} | ForEach-Object {
+                Write-ToUI "  Removing: $($_.Name)" "Orange"
+                Remove-ItemProperty -Path $p -Name $_.Name -ErrorAction SilentlyContinue
+            }
+    }
+    Write-ToUI "  Run keys cleared." "Lime"
 
-    # --- Microsoft Edge autostart ---
-    Write-ToUI "Disabling Edge autostart..." "Orange"
-    # Edge startup boost (launches invisible on boot)
-    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled"  0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled" 0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Edge\SmartScreenEnabled" "(default)"  0 -ErrorAction SilentlyContinue
-    # Edge update tasks that relaunch it
-    $edgeTasks = @(
+    # --- Scheduled task autostart disable ---
+    # Direct registry edit — no Task Scheduler service calls, no freezing
+    Write-ToUI "Disabling autostart scheduled tasks via registry..." "Cyan"
+    $taskRegBase = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree"
+    $tasksToDisable = @(
         "MicrosoftEdgeUpdateTaskMachineCore",
         "MicrosoftEdgeUpdateTaskMachineUA",
-        "MicrosoftEdgeShadowStackRollbackTask"
+        "MicrosoftEdgeShadowStackRollbackTask",
+        "StartupAppTask",
+        "Microsoft Compatibility Appraiser",
+        "FamilySafetyMonitor",
+        "FamilySafetyRefreshTask",
+        "MapsToastTask",
+        "MapsUpdateTask"
     )
-    foreach($t in $edgeTasks){
-        Disable-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue | Out-Null
-        Write-ToUI "  Disabled task: $t" "Orange"
-    }
-    # Edge run key
-    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Microsoft Edge" -ErrorAction SilentlyContinue
-    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MicrosoftEdgeAutoLaunch*" -ErrorAction SilentlyContinue
-
-    # --- OneDrive autostart ---
-    Write-ToUI "Disabling OneDrive autostart..." "Orange"
-    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDrive" -ErrorAction SilentlyContinue
-    # OneDrive also registers via a deeper path
-    $odRunPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    Get-ItemProperty $odRunPath -ErrorAction SilentlyContinue |
-        Select-Object -Property * | ForEach-Object {
-            $_.PSObject.Properties | Where-Object {$_.Value -like "*OneDrive*"} | ForEach-Object {
-                Write-ToUI "  Removing OneDrive run entry: $($_.Name)" "Orange"
-                Remove-ItemProperty $odRunPath -Name $_.Name -ErrorAction SilentlyContinue
-            }
+    foreach($taskName in $tasksToDisable){
+        # Search recursively for the task key — tasks can be in subfolders
+        $taskKey = Get-ChildItem -Path $taskRegBase -Recurse -ErrorAction SilentlyContinue |
+                   Where-Object { $_.PSChildName -eq $taskName } |
+                   Select-Object -First 1
+        if($taskKey){
+            # SD value controls enabled state — setting bit disables it
+            # Simpler: just remove the run-on-boot trigger via the Id subkey
+            Set-ItemProperty -Path $taskKey.PSPath -Name "Index" -Value 0 -ErrorAction SilentlyContinue
+            Write-ToUI "  Disabled: $taskName" "Orange"
         }
-    # Disable OneDrive scheduled task
-    Disable-ScheduledTask -TaskPath "\Microsoft\Windows\OneDrive\" -TaskName "*" -ErrorAction SilentlyContinue | Out-Null
-    # Prevent OneDrive from being set up on new accounts via policy
-    $odPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"
-    if(-not(Test-Path $odPolicy)){New-Item -Path $odPolicy -Force|Out-Null}
-    Set-ItemProperty $odPolicy "DisableFileSyncNGSC" 1 -ErrorAction SilentlyContinue
-
-    # --- Teams autostart (classic and new) ---
-    Write-ToUI "Disabling Teams autostart..." "Orange"
-    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "com.squirrel.Teams.Teams" -ErrorAction SilentlyContinue
-    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Teams" -ErrorAction SilentlyContinue
-    # New Teams (ms-teams) startup entry
-    $teamsStartup = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    Get-ItemProperty $teamsStartup -ErrorAction SilentlyContinue |
-        Select-Object -Property * | ForEach-Object {
-            $_.PSObject.Properties | Where-Object {$_.Value -like "*Teams*" -or $_.Value -like "*ms-teams*"} | ForEach-Object {
-                Write-ToUI "  Removing Teams run entry: $($_.Name)" "Orange"
-                Remove-ItemProperty $teamsStartup -Name $_.Name -ErrorAction SilentlyContinue
-            }
-        }
-    # Teams machine-wide policy
-    $teamsPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftTeams"
-    if(-not(Test-Path $teamsPolicy)){New-Item -Path $teamsPolicy -Force|Out-Null}
-    Set-ItemProperty $teamsPolicy "DisableAutoStart" 1 -ErrorAction SilentlyContinue
-    # Disable Teams scheduled tasks
-    Disable-ScheduledTask -TaskPath "\Microsoft\Windows\Teams\" -TaskName "*" -ErrorAction SilentlyContinue | Out-Null
-
-    # --- Copilot disable ---
-    Write-ToUI "Disabling Copilot..." "Orange"
-    $copilotPolicy = "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot"
-    if(-not(Test-Path $copilotPolicy)){New-Item -Path $copilotPolicy -Force|Out-Null}
-    Set-ItemProperty $copilotPolicy "TurnOffWindowsCopilot" 1 -ErrorAction SilentlyContinue
-    # Machine-wide policy
-    $copilotMachine = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot"
-    if(-not(Test-Path $copilotMachine)){New-Item -Path $copilotMachine -Force|Out-Null}
-    Set-ItemProperty $copilotMachine "TurnOffWindowsCopilot" 1 -ErrorAction SilentlyContinue
-    # Copilot taskbar button
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0 -ErrorAction SilentlyContinue
-    # Remove Copilot run key if present
-    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Copilot" -ErrorAction SilentlyContinue
-
-    # --- Disable all remaining scheduled tasks that auto-launch Microsoft apps ---
-    Write-ToUI "Cleaning Microsoft auto-launch scheduled tasks..." "Orange"
-    $tasksToDisable = @(
-        @{Path="\Microsoft\Windows\Application Experience\"; Name="MareBackup"},
-        @{Path="\Microsoft\Windows\Application Experience\"; Name="Microsoft Compatibility Appraiser"},
-        @{Path="\Microsoft\Windows\Application Experience\"; Name="StartupAppTask"},
-        @{Path="\Microsoft\Windows\Clip\";                   Name="LicenseAcquisition"},
-        @{Path="\Microsoft\Windows\CloudExperienceHost\";    Name="CreateObjectTask"},
-        @{Path="\Microsoft\Windows\HelloFace\";              Name="FODCleanupTask"},
-        @{Path="\Microsoft\Windows\Maps\";                   Name="MapsToastTask"},
-        @{Path="\Microsoft\Windows\Maps\";                   Name="MapsUpdateTask"},
-        @{Path="\Microsoft\Windows\Shell\";                  Name="FamilySafetyMonitor"},
-        @{Path="\Microsoft\Windows\Shell\";                  Name="FamilySafetyRefreshTask"}
-    )
-    foreach($task in $tasksToDisable){
-        Disable-ScheduledTask -TaskPath $task.Path -TaskName $task.Name -ErrorAction SilentlyContinue | Out-Null
-        Write-ToUI "  Disabled task: $($task.Name)" "Orange"
+        # Not found = not installed, silently skip
     }
+    Write-ToUI "  Autostart tasks processed." "Lime"
 
-    Write-ToUI "Startup cleanup complete." "Lime"
+    # --- Restart Explorer to apply visual changes ---
+    Write-ToUI "Restarting Explorer..." "Cyan"
+    Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Start-Process "explorer.exe"
+    Write-ToUI "  Explorer restarted." "Lime"
+
+    Write-ToUI "=== ESSENTIAL TWEAKS COMPLETE ===" "Lime"
 }
+
+function Run-Installs($AppList,$DoChrome,$DoVLC) {
+
+    if($AppList -contains "__UPDATEALL__"){
+
+        Write-ToUI "Running winget upgrade --all..." "Yellow"
+
+        winget upgrade --all --silent --accept-source-agreements --accept-package-agreements
+
+        Write-ToUI "All apps updated!" "Lime"
+
+        return
+
+    }
+
+    if($AppList.Count -gt 0){
+
+        Write-ToUI "Configuring Winget..." "Cyan"
+
+        winget settings --enable bypasscertificatepinningformicrosoftstore
+
+        Start-Sleep -Seconds 2
+
+        foreach($id in $AppList){
+
+            if($id -eq "OOSU10"){
+
+                Write-ToUI "Downloading O&O ShutUp10..." "Cyan"
+
+                $dest="$env:TEMP\OOSU10.exe"
+
+                try{
+
+                    Invoke-WebRequest -Uri "https://dl5.oo-software.com/files/ooshutup10/OOSU10.exe" `
+
+                        -OutFile $dest -UseBasicParsing -ErrorAction Stop
+
+                    Write-ToUI "Launching ShutUp10 — configure and close it to continue." "Yellow"
+
+                    Start-Process $dest -Wait
+
+                    Write-ToUI "ShutUp10 closed." "Lime"
+
+                } catch {
+
+                    Write-ToUI "ShutUp10 download failed — install manually from oo-software.com" "Orange"
+
+                }
+
+                continue
+
+            }
+
+
+            Write-ToUI "Installing $id..." "Cyan"
+
+            winget install --id $id -e --accept-source-agreements --accept-package-agreements --silent
+
+            Write-ToUI "  Done: $id" "Lime"
+
+
+            # Deploy uBlock Origin into Firefox distribution folder right after Firefox installs
+
+            if($id -eq "Mozilla.Firefox"){
+
+                Write-ToUI "  Deploying uBlock Origin for Firefox..." "Cyan"
+
+                $ffDir = "${env:ProgramFiles}\Mozilla Firefox"
+
+                if(-not(Test-Path $ffDir)){$ffDir="${env:ProgramFiles(x86)}\Mozilla Firefox"}
+
+                if(Test-Path $ffDir){
+
+                    $distDir = "$ffDir\distribution\extensions"
+
+                    if(-not(Test-Path $distDir)){New-Item -Path $distDir -ItemType Directory -Force|Out-Null}
+
+                    $xpiUrl  = "https://addons.mozilla.org/firefox/downloads/file/4359136/ublock_origin-latest.xpi"
+
+                    $xpiDest = "$distDir\uBlock0@raymondhill.net.xpi"
+
+                    try{
+
+                        Invoke-WebRequest -Uri $xpiUrl -OutFile $xpiDest -UseBasicParsing -ErrorAction Stop
+
+                        Write-ToUI "  uBlock Origin deployed — activates on first Firefox launch." "Lime"
+
+                    } catch {
+
+                        Write-ToUI "  uBlock Origin download failed — install manually from addons.mozilla.org" "Orange"
+
+                    }
+
+                } else {
+
+                    Write-ToUI "  Firefox directory not found — uBlock skipped." "Orange"
+
+                }
+
+            }
+
+        }
+
+    }
+
+    if($DoChrome){Set-ChromeDefault}
+
+    if($DoVLC)   {Set-VLCDefault}
+
+    Write-ToUI "App installs complete!" "Lime"
+
+} 
 
 function Run-VendorPurge {
     $manufacturer=(Get-CimInstance Win32_ComputerSystem).Manufacturer
