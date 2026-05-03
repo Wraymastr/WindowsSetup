@@ -1,0 +1,308 @@
+# ============================================================
+# QuickSanitize.ps1
+# Run as Administrator — no UI required
+# Performs: MS Bloat Removal, Vendor Purge, Essential Tweaks
+# ============================================================
+
+#region ELEVATION CHECK
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "`n  [ERROR] Please run this script as Administrator.`n" -ForegroundColor Red
+    pause; exit
+}
+#endregion
+
+#region HELPERS
+function Log($msg, $col="Green") {
+    $ts = Get-Date -Format "HH:mm:ss"
+    Write-Host "[$ts] $msg" -ForegroundColor $col
+}
+function Section($title) {
+    Write-Host ""
+    Write-Host "  ============================================" -ForegroundColor DarkGray
+    Write-Host "  $title" -ForegroundColor Cyan
+    Write-Host "  ============================================" -ForegroundColor DarkGray
+}
+#endregion
+
+# ============================================================
+# BANNER
+# ============================================================
+Clear-Host
+Write-Host ""
+Write-Host "  +==========================================+" -ForegroundColor Cyan
+Write-Host "  |       WRAYNET QUICK SANITIZE             |" -ForegroundColor Cyan
+Write-Host "  |  Bloat + Vendor Purge + Essential Tweaks |" -ForegroundColor Cyan
+Write-Host "  +==========================================+" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Computer  : $env:COMPUTERNAME" -ForegroundColor Gray
+Write-Host "  User      : $env:USERNAME" -ForegroundColor Gray
+Write-Host "  Date      : $(Get-Date -Format 'dd MMM yyyy HH:mm')" -ForegroundColor Gray
+Write-Host ""
+
+# ============================================================
+# SECTION 1 — MS BLOAT REMOVAL
+# ============================================================
+Section "STEP 1 — MICROSOFT BLOAT REMOVAL"
+
+$bloatApps = @(
+    "*MicrosoftTeams*","*MSTeams*","*Clipchamp*","*Xbox*","*Cortana*",
+    "*MicrosoftNews*","*BingWeather*","*GetHelp*","*FeedbackHub*",
+    "*WindowsMaps*","*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
+    "*People*","*ZuneMusic*","*ZuneVideo*","Microsoft.Messaging","Microsoft.OneConnect"
+)
+
+foreach($app in $bloatApps){
+    Log "Checking: $app" "Gray"
+    Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue | ForEach-Object {
+        Log "  Removing: $($_.Name)" "Yellow"
+        Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+    }
+    Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+        Where-Object {$_.DisplayName -like $app} | ForEach-Object {
+            Log "  Removing provisioned: $($_.DisplayName)" "Yellow"
+            Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+        }
+}
+Log "Microsoft bloat removal complete." "Green"
+
+# ============================================================
+# SECTION 2 — VENDOR PURGE
+# ============================================================
+Section "STEP 2 — VENDOR PURGE"
+
+$manufacturer = (Get-CimInstance Win32_ComputerSystem).Manufacturer
+Log "Detected manufacturer: $manufacturer" "Cyan"
+
+$vendor = "Unknown"
+if($manufacturer -match "HP|Hewlett")  { $vendor = "HP" }
+elseif($manufacturer -match "Dell")    { $vendor = "Dell" }
+elseif($manufacturer -match "Lenovo")  { $vendor = "Lenovo" }
+elseif($manufacturer -match "Acer")    { $vendor = "Acer" }
+elseif($manufacturer -match "ASUS")    { $vendor = "ASUS" }
+elseif($manufacturer -match "MSI")     { $vendor = "MSI" }
+elseif($manufacturer -match "Toshiba") { $vendor = "Toshiba" }
+elseif($manufacturer -match "Samsung") { $vendor = "Samsung" }
+elseif($manufacturer -match "Microsoft"){ $vendor = "Microsoft" }
+
+if($vendor -eq "Unknown"){
+    Log "Unknown vendor — skipping vendor purge." "Yellow"
+} else {
+    Log "Running $vendor bloatware removal..." "Cyan"
+
+    $vendorBloat = @{
+        "HP"       = @("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart","HP.HPAudioCenter","HP.HPSystemEventUtility","HP.HPEnhance","HP.HPPCHardwareDiagnosticsWindows")
+        "Dell"     = @("Dell.DellSupportAssistforPCs","Dell.DellOptimizer","Dell.DellDigitalDelivery","Dell.DellUpdate","Dell.DellCommandUpdate","Dell.DellPowerManager","Dell.DellCinemaGuide","Dell.DellMobileConnect","Dell.DellCinema")
+        "Lenovo"   = @("E046963F.LenovoCompanion","E046963F.LenovoSettings","E0469640.LenovoUtility","LenovoCorporation.LenovoSettings","LenovoCorporation.LenovoID","LenovoCorporation.LenovoCompanion")
+        "Acer"     = @("AcerIncorporated.AcerRegistration","AcerIncorporated.QuickAccess","AcerIncorporated.AcerCollection","AcerIncorporated.AcerCareCenterS","AcerIncorporated.AcerJumpStart")
+        "ASUS"     = @("ASUSTeKCOMPUTERINC.MyASUS","ASUSTeKCOMPUTERINC.ASUSProductRegistrationProgram","ASUSTeKCOMPUTERINC.ASUSWelcome","ASUSTeKCOMPUTERINC.ASUSLiveUpdate")
+        "MSI"      = @("MSI.CenterFacade","MSI.DragonCenter","MSI.MSICenter","MSI.MSICenterSDK")
+        "Toshiba"  = @("ToshibaCorporation.ToshibaServiceStation","ToshibaCorporation.SettingsforYourTOSHIBA")
+        "Samsung"  = @("HONHAIPREC.Samsung_Update","HONHAIPREC.SamsungUpdate")
+        "Microsoft"= @("Microsoft.SurfaceHub","Microsoft.PPIProjection")
+    }
+
+    $vendorWinget = @{
+        "HP"      = @("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart")
+        "Dell"    = @("Dell.CommandUpdate","Dell.DellOptimizer","Dell.DellSupportAssist","Dell.DellDigitalDelivery","Dell.DellPowerManager")
+        "Lenovo"  = @("Lenovo.SystemUpdate","Lenovo.VantageService","Lenovo.SmartAppearance")
+        "Acer"    = @("Acer.AcerCollection","Acer.QuickAccess")
+        "ASUS"=@(); "MSI"=@(); "Toshiba"=@(); "Samsung"=@(); "Microsoft"=@()
+    }
+
+    # AppX removal
+    foreach($app in $vendorBloat[$vendor]){
+        Log "Checking AppX: $app" "Gray"
+        Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue | ForEach-Object {
+            Log "  Removing: $($_.Name)" "Yellow"
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+            Where-Object {$_.DisplayName -like $app} | ForEach-Object {
+                Log "  Removing provisioned: $($_.DisplayName)" "Yellow"
+                Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+            }
+    }
+
+    # Winget uninstall
+    if($vendorWinget[$vendor].Count -gt 0){
+        foreach($app in $vendorWinget[$vendor]){
+            Log "Uninstalling via Winget: $app" "Gray"
+            winget uninstall --id $app -e --accept-source-agreements -h --force 2>&1 | Out-Null
+        }
+    }
+
+    # WMI nuclear options for stubborn installs
+    $wmiQueries = @{
+        "HP"     = @("*HP Wolf*","*HP Sure Sense*")
+        "Lenovo" = @("*Lenovo Vantage*")
+        "Dell"   = @("*Dell Support*")
+    }
+    if($wmiQueries.ContainsKey($vendor)){
+        foreach($pattern in $wmiQueries[$vendor]){
+            Get-CimInstance Win32_Product -ErrorAction SilentlyContinue |
+                Where-Object {$_.Name -like $pattern} | ForEach-Object {
+                    Log "  Force removing: $($_.Name)" "Yellow"
+                    Invoke-CimMethod -InputObject $_ -MethodName "Uninstall" | Out-Null
+                }
+        }
+    }
+
+    Log "$vendor purge complete." "Green"
+}
+
+# ============================================================
+# SECTION 3 — ESSENTIAL TWEAKS
+# ============================================================
+Section "STEP 3 — ESSENTIAL TWEAKS"
+
+# Telemetry
+Log "Disabling telemetry..." "Cyan"
+Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -ErrorAction SilentlyContinue
+Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
+Log "  Telemetry disabled." "Green"
+
+$ads = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+"SubscribedContent-310093Enabled","SubscribedContent-353696Enabled",
+"RotatingLockScreenOverlayEnabled","SubscribedContent-338387Enabled" | ForEach-Object {
+    Set-ItemProperty -Path $ads -Name $_ -Value 0 -ErrorAction SilentlyContinue
+}
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0 -ErrorAction SilentlyContinue
+Log "  Ads and tailored experiences disabled." "Green"
+
+# Bing search
+Log "Disabling Bing in Start Menu..." "Cyan"
+$searchPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"
+if(-not(Test-Path $searchPath)){New-Item -Path $searchPath -Force|Out-Null}
+Set-ItemProperty $searchPath "BingSearchEnabled"        0 -ErrorAction SilentlyContinue
+Set-ItemProperty $searchPath "CortanaConsent"           0 -ErrorAction SilentlyContinue
+Set-ItemProperty $searchPath "AllowSearchToUseLocation" 0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings" "IsDynamicSearchBoxPresent" 0 -ErrorAction SilentlyContinue
+$searchPol = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
+if(-not(Test-Path $searchPol)){New-Item -Path $searchPol -Force|Out-Null}
+Set-ItemProperty $searchPol "DisableSearchBoxSuggestions" 1 -ErrorAction SilentlyContinue
+$machinePol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+if(-not(Test-Path $machinePol)){New-Item -Path $machinePol -Force|Out-Null}
+Set-ItemProperty $machinePol "DisableWebSearch"      1 -ErrorAction SilentlyContinue
+Set-ItemProperty $machinePol "ConnectedSearchUseWeb" 0 -ErrorAction SilentlyContinue
+Log "  Bing search disabled." "Green"
+
+# Taskbar
+Log "Cleaning taskbar..." "Cyan"
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds"             "ShellFeedsTaskbarViewMode" 2 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "PeopleBand"                0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow"            1 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowTaskViewButton"         0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa"                 0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton"         0 -ErrorAction SilentlyContinue
+Log "  Taskbar cleaned." "Green"
+
+# Widgets
+Log "Disabling Widgets..." "Cyan"
+$wp = "HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
+if(-not(Test-Path $wp)){New-Item -Path $wp -Force|Out-Null}
+Set-ItemProperty $wp "AllowNewsAndInterests" 0 -ErrorAction SilentlyContinue
+Log "  Widgets disabled." "Green"
+
+# Edge
+Log "Disabling Edge startup boost..." "Cyan"
+Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled"   0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled"  0 -ErrorAction SilentlyContinue
+Log "  Edge startup boost disabled." "Green"
+
+# Update hours
+Log "Setting update active hours 8am-5pm..." "Cyan"
+Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" 8  -ErrorAction SilentlyContinue
+Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd"   17 -ErrorAction SilentlyContinue
+Log "  Active hours set." "Green"
+
+# Explorer tweaks
+Log "Applying Explorer tweaks..." "Cyan"
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt"    0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "AutoCheckSelect" 0 -ErrorAction SilentlyContinue
+Log "  File extensions visible, checkboxes disabled." "Green"
+
+# Hibernate
+Log "Disabling hibernation..." "Cyan"
+powercfg.exe /hibernate off 2>&1 | Out-Null
+Log "  Hibernation disabled." "Green"
+
+# Timezone
+Log "Setting timezone to NZ Standard Time..." "Cyan"
+try {
+    Set-TimeZone -Id "New Zealand Standard Time" -ErrorAction Stop
+    Log "  Timezone set." "Green"
+} catch {
+    Log "  Timezone change failed — set manually." "Yellow"
+}
+
+# Right-click menu
+Log "Restoring Windows 10 right-click menu..." "Cyan"
+$rc = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
+if(-not(Test-Path $rc)){New-Item -Path $rc -Force|Out-Null}
+Set-ItemProperty $rc "(default)" "" -ErrorAction SilentlyContinue
+Log "  Right-click menu restored." "Green"
+
+# Run key cleanup
+Log "Clearing startup Run keys..." "Cyan"
+@("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+  "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run") | ForEach-Object {
+    $p = $_
+    (Get-ItemProperty -Path $p -ErrorAction SilentlyContinue).PSObject.Properties |
+        Where-Object {$_.Name -notlike "PS*"} | ForEach-Object {
+            Log "  Removing run key: $($_.Name)" "Yellow"
+            Remove-ItemProperty -Path $p -Name $_.Name -ErrorAction SilentlyContinue
+        }
+}
+Log "  Run keys cleared." "Green"
+
+# Autostart policies (no Task Scheduler calls — instant)
+Log "Blocking Microsoft app autostart via policy..." "Cyan"
+
+# Edge
+Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Microsoft Edge" -ErrorAction SilentlyContinue
+Log "  Edge autostart blocked." "Yellow"
+
+# OneDrive
+$odPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"
+if(-not(Test-Path $odPolicy)){New-Item -Path $odPolicy -Force|Out-Null}
+Set-ItemProperty $odPolicy "DisableFileSyncNGSC" 1 -ErrorAction SilentlyContinue
+Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDrive" -ErrorAction SilentlyContinue
+Log "  OneDrive autostart blocked." "Yellow"
+
+# Teams
+$teamsPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftTeams"
+if(-not(Test-Path $teamsPolicy)){New-Item -Path $teamsPolicy -Force|Out-Null}
+Set-ItemProperty $teamsPolicy "DisableAutoStart" 1 -ErrorAction SilentlyContinue
+Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Teams" -ErrorAction SilentlyContinue
+Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "com.squirrel.Teams.Teams" -ErrorAction SilentlyContinue
+Log "  Teams autostart blocked." "Yellow"
+
+# Copilot
+$copU = "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot"
+$copM = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot"
+foreach($p in @($copU,$copM)){
+    if(-not(Test-Path $p)){New-Item -Path $p -Force|Out-Null}
+    Set-ItemProperty $p "TurnOffWindowsCopilot" 1 -ErrorAction SilentlyContinue
+}
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0 -ErrorAction SilentlyContinue
+Log "  Copilot blocked." "Yellow"
+
+Log "  Autostart policies applied." "Green"
+
+# Restart Explorer
+Log "Restarting Explorer to apply visual changes..." "Cyan"
+Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+Start-Process "explorer.exe"
+Log "  Explorer restarted." "Green"
+
+# ============================================================
+# DONE
+# ============================================================
+Write-Host ""
+Write-Host "  +==========================================+" -ForegroundColor Green
+Write-Host "  |         QUICK SANITIZE COMPLETE          |" -ForegroundColor Green
+Write-Host "  |     A restart is recommended.            |" -ForegroundColor Green
+Write-Host "  +==========================================+" -ForegroundColor Green
+Write-Host ""
+pause
