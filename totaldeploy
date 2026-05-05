@@ -1,0 +1,399 @@
+#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    WRAYNET Total Deploy — Standalone (no UI)
+.DESCRIPTION
+    Runs the full provision sequence from WrayNet Windows Utility without any GUI.
+    Steps: Rename → Local Account → Domain Join → Activation → Vendor Purge → Debloat → Apps → Restart
+.NOTES
+    Run from an elevated PowerShell prompt:
+        powershell -ExecutionPolicy Bypass -File TotalDeploy-Standalone.ps1
+#>
+
+Set-StrictMode -Off
+$ErrorActionPreference = "Continue"
+
+# Tracks the new computer name if set, so domain join can reference it in logs
+$script:NewComputerName = $null
+
+# ============================================================
+# LOGGING
+# ============================================================
+function Write-Log($msg, $col = "Green") {
+    $ts = Get-Date -Format "HH:mm:ss"
+    Write-Host "[$ts] $msg" -ForegroundColor $col
+}
+
+# ============================================================
+# STEP FUNCTIONS
+# ============================================================
+
+function Step-Rename {
+    Write-Log "=== STEP 0: RENAME COMPUTER ===" "Yellow"
+    $current = $env:COMPUTERNAME
+    Write-Log "Current name: $current" "Cyan"
+    $newName = Read-Host "Enter new computer name (max 15 chars, blank to skip)"
+    if ([string]::IsNullOrWhiteSpace($newName) -or $newName -eq $current) {
+        Write-Log "Rename skipped." "Gray"; return
+    }
+    if ($newName.Length -gt 15) { Write-Log "Name too long — skipped." "Red"; return }
+    try {
+        Rename-Computer -NewName $newName -Force -ErrorAction Stop
+        $script:NewComputerName = $newName
+        Write-Log "Renamed to '$newName' — will apply on restart." "Green"
+    } catch {
+        Write-Log "Rename failed: $($_.Exception.Message)" "Red"
+    }
+}
+
+function Step-CreateLocalAccount {
+    Write-Log "=== STEP 1: CREATE LOCAL ACCOUNT ===" "Yellow"
+    $skip = Read-Host "Create a local account? (Y/N)"
+    if ($skip -notmatch "^[Yy]") { Write-Log "Skipped." "Gray"; return }
+
+    $username = Read-Host "Username"
+    if ([string]::IsNullOrWhiteSpace($username)) { Write-Log "No username — skipped." "Gray"; return }
+
+    $fullName = Read-Host "Full name (optional, blank to skip)"
+    $pass1    = Read-Host "Password" -AsSecureString
+    $pass2    = Read-Host "Confirm password" -AsSecureString
+
+    $p1 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pass1))
+    $p2 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pass2))
+
+    if ($p1 -ne $p2)      { Write-Log "Passwords don't match — skipped." "Red"; return }
+    if ($p1.Length -lt 1) { Write-Log "Password empty — skipped." "Red"; return }
+
+    $isAdmin = Read-Host "Add to Administrators group? (Y/N)"
+
+    try {
+        $sp = ConvertTo-SecureString $p1 -AsPlainText -Force
+        $params = @{ Name = $username; Password = $sp; ErrorAction = "Stop" }
+        if (-not [string]::IsNullOrWhiteSpace($fullName)) { $params.FullName = $fullName }
+        New-LocalUser @params | Out-Null
+
+        if ($isAdmin -match "^[Yy]") {
+            Add-LocalGroupMember -Group "Administrators" -Member $username -ErrorAction Stop
+            Write-Log "Account '$username' created (Administrators)." "Green"
+        } else {
+            Add-LocalGroupMember -Group "Users" -Member $username -ErrorAction Stop
+            Write-Log "Account '$username' created (Users)." "Green"
+        }
+    } catch {
+        Write-Log "Account creation failed: $($_.Exception.Message)" "Red"
+    }
+}
+
+function Step-DomainJoin {
+    Write-Log "=== STEP 2: DOMAIN JOIN ===" "Yellow"
+    $skip = Read-Host "Join a domain? (Y/N)"
+    if ($skip -notmatch "^[Yy]") { Write-Log "Skipped." "Gray"; return }
+
+    $domain = Read-Host "Domain name"
+    if ([string]::IsNullOrWhiteSpace($domain)) { Write-Log "No domain entered — skipped." "Gray"; return }
+
+    # If the computer was renamed this session, the new name is already staged in the registry.
+    # Add-Computer will pick it up automatically — the machine joins under the new name on reboot.
+    if ($script:NewComputerName) {
+        Write-Log "Machine will join as '$($script:NewComputerName)' (staged rename applies on reboot)." "Cyan"
+    }
+
+    try {
+        # No -Restart flag — reboot is handled at the end of the script
+        Add-Computer -DomainName $domain -Force -ErrorAction Stop
+        Write-Log "Domain join staged for '$domain' — will complete on restart." "Green"
+    } catch {
+        Write-Log "Domain join failed: $($_.Exception.Message)" "Red"
+    }
+}
+
+function Step-Activation {
+    Write-Log "=== STEP 3: WINDOWS ACTIVATION ===" "Yellow"
+    $skip = Read-Host "Check / activate Windows? (Y/N)"
+    if ($skip -notmatch "^[Yy]") { Write-Log "Skipped." "Gray"; return }
+
+    $licStatus = (& cscript.exe "$env:SystemRoot\System32\slmgr.vbs" /dli 2>&1) -join " "
+    if ($licStatus -match "License Status: Licensed") {
+        Write-Log "Windows is already activated." "Green"; return
+    }
+
+    Write-Log "Windows not activated." "DarkYellow"
+    $key = Read-Host "Enter product key (XXXXX-XXXXX-XXXXX-XXXXX-XXXXX, blank to skip)"
+    if ([string]::IsNullOrWhiteSpace($key)) { Write-Log "Activation skipped." "Gray"; return }
+
+    if ($key -notmatch "^[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$") {
+        Write-Log "Invalid key format — skipped." "Red"; return
+    }
+
+    Write-Log "Installing product key..." "Cyan"
+    & cscript.exe "$env:SystemRoot\System32\slmgr.vbs" /ipk $key 2>&1 | Out-Null
+    Write-Log "Activating..." "Cyan"
+    & cscript.exe "$env:SystemRoot\System32\slmgr.vbs" /ato 2>&1 | Out-Null
+    Write-Log "Activation command sent — check Settings > Activation for status." "Green"
+}
+
+function Step-VendorPurge {
+    Write-Log "=== STEP 4: VENDOR PURGE ===" "Yellow"
+    $manufacturer = (Get-CimInstance Win32_ComputerSystem).Manufacturer
+    Write-Log "Detected manufacturer: $manufacturer" "Cyan"
+
+    $vendor = "Unknown"
+    if    ($manufacturer -match "HP|Hewlett") { $vendor = "HP" }
+    elseif ($manufacturer -match "Dell")       { $vendor = "Dell" }
+    elseif ($manufacturer -match "Lenovo")     { $vendor = "Lenovo" }
+    elseif ($manufacturer -match "Acer")       { $vendor = "Acer" }
+    elseif ($manufacturer -match "ASUS")       { $vendor = "ASUS" }
+    elseif ($manufacturer -match "MSI")        { $vendor = "MSI" }
+    elseif ($manufacturer -match "Toshiba")    { $vendor = "Toshiba" }
+    elseif ($manufacturer -match "Samsung")    { $vendor = "Samsung" }
+    elseif ($manufacturer -match "Microsoft")  { $vendor = "Microsoft" }
+
+    if ($vendor -eq "Unknown") { Write-Log "Unknown vendor — skipping purge." "DarkYellow"; return }
+
+    $vendorAppx = @{
+        "HP"        = @("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart","HP.HPAudioCenter","HP.HPSystemEventUtility","HP.HPEnhance","HP.HPPCHardwareDiagnosticsWindows")
+        "Dell"      = @("Dell.DellSupportAssistforPCs","Dell.DellOptimizer","Dell.DellDigitalDelivery","Dell.DellUpdate","Dell.DellCommandUpdate","Dell.DellPowerManager","Dell.DellCinemaGuide","Dell.DellMobileConnect","Dell.DellCinema")
+        "Lenovo"    = @("E046963F.LenovoCompanion","E046963F.LenovoSettings","E0469640.LenovoUtility","LenovoCorporation.LenovoSettings","LenovoCorporation.LenovoID","LenovoCorporation.LenovoCompanion")
+        "Acer"      = @("AcerIncorporated.AcerRegistration","AcerIncorporated.QuickAccess","AcerIncorporated.AcerCollection","AcerIncorporated.AcerCareCenterS","AcerIncorporated.AcerJumpStart")
+        "ASUS"      = @("ASUSTeKCOMPUTERINC.MyASUS","ASUSTeKCOMPUTERINC.ASUSProductRegistrationProgram","ASUSTeKCOMPUTERINC.ASUSWelcome","ASUSTeKCOMPUTERINC.ASUSLiveUpdate")
+        "MSI"       = @("MSI.CenterFacade","MSI.DragonCenter","MSI.MSICenter","MSI.MSICenterSDK")
+        "Toshiba"   = @("ToshibaCorporation.ToshibaServiceStation","ToshibaCorporation.SettingsforYourTOSHIBA")
+        "Samsung"   = @("HONHAIPREC.Samsung_Update","HONHAIPREC.SamsungUpdate")
+        "Microsoft" = @("Microsoft.SurfaceHub","Microsoft.PPIProjection")
+    }
+    $vendorWinget = @{
+        "HP"        = @("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart")
+        "Dell"      = @("Dell.CommandUpdate","Dell.DellOptimizer","Dell.DellSupportAssist","Dell.DellDigitalDelivery","Dell.DellPowerManager")
+        "Lenovo"    = @("Lenovo.SystemUpdate","Lenovo.VantageService","Lenovo.SmartAppearance")
+        "Acer"      = @("Acer.AcerCollection","Acer.QuickAccess")
+        "ASUS"      = @(); "MSI" = @(); "Toshiba" = @(); "Samsung" = @(); "Microsoft" = @()
+    }
+
+    foreach ($app in $vendorAppx[$vendor]) {
+        Write-Log "Checking AppX: $app" "Gray"
+        Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Log "  Removing: $($_.Name)" "DarkYellow"
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like $app } | ForEach-Object {
+                Write-Log "  Removing provisioned: $($_.DisplayName)" "DarkYellow"
+                Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+            }
+    }
+
+    foreach ($app in $vendorWinget[$vendor]) {
+        Write-Log "Uninstalling via winget: $app" "Gray"
+        winget uninstall --id $app -e --accept-source-agreements -h --force 2>&1 | Out-Null
+    }
+
+    $wmiTargets = @{
+        "HP"     = @("*HP Wolf*","*HP Sure Sense*")
+        "Lenovo" = @("*Lenovo Vantage*")
+        "Dell"   = @("*Dell Support*")
+    }
+    if ($wmiTargets.ContainsKey($vendor)) {
+        foreach ($pattern in $wmiTargets[$vendor]) {
+            Get-CimInstance Win32_Product -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like $pattern } | ForEach-Object {
+                    Write-Log "  Force removing: $($_.Name)" "DarkYellow"
+                    Invoke-CimMethod -InputObject $_ -MethodName "Uninstall" | Out-Null
+                }
+        }
+    }
+    Write-Log "$vendor purge complete." "Green"
+}
+
+function Step-Debloat {
+    Write-Log "=== STEP 5a: MICROSOFT BLOAT REMOVAL ===" "Yellow"
+    $apps = @(
+        "*MicrosoftTeams*","*MSTeams*","*Clipchamp*","*Xbox*","*Cortana*",
+        "*MicrosoftNews*","*BingWeather*","*GetHelp*","*FeedbackHub*",
+        "*WindowsMaps*","*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
+        "*People*","*ZuneMusic*","*ZuneVideo*","Microsoft.Messaging","Microsoft.OneConnect"
+    )
+    foreach ($app in $apps) {
+        Write-Log "Checking: $app" "Gray"
+        Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Log "  Removing: $($_.Name)" "DarkYellow"
+            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
+        }
+        Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like $app } | ForEach-Object {
+                Write-Log "  Removing provisioned: $($_.DisplayName)" "DarkYellow"
+                Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+            }
+    }
+    Write-Log "Bloat removal complete." "Green"
+}
+
+function Step-EssentialTweaks {
+    Write-Log "=== STEP 5b: ESSENTIAL TWEAKS ===" "Yellow"
+
+    Write-Log "Disabling telemetry..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -ErrorAction SilentlyContinue
+    Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
+
+    $ads = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+    "SubscribedContent-310093Enabled","SubscribedContent-353696Enabled",
+    "RotatingLockScreenOverlayEnabled","SubscribedContent-338387Enabled" | ForEach-Object {
+        Set-ItemProperty -Path $ads -Name $_ -Value 0 -ErrorAction SilentlyContinue
+    }
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0 -ErrorAction SilentlyContinue
+    Write-Log "  Ads and tailored experiences disabled." "Green"
+
+    Write-Log "Disabling Bing in Start Menu..." "Cyan"
+    $searchPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"
+    if (-not (Test-Path $searchPath)) { New-Item -Path $searchPath -Force | Out-Null }
+    Set-ItemProperty $searchPath "BingSearchEnabled"        0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchPath "CortanaConsent"           0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchPath "AllowSearchToUseLocation" 0 -ErrorAction SilentlyContinue
+    $machinePol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+    if (-not (Test-Path $machinePol)) { New-Item -Path $machinePol -Force | Out-Null }
+    Set-ItemProperty $machinePol "DisableWebSearch"      1 -ErrorAction SilentlyContinue
+    Set-ItemProperty $machinePol "ConnectedSearchUseWeb" 0 -ErrorAction SilentlyContinue
+    Write-Log "  Bing search disabled." "Green"
+
+    Write-Log "Cleaning taskbar..." "Cyan"
+    $adv = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+    Set-ItemProperty $adv "ShowTaskViewButton" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $adv "TaskbarDa"          0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $adv "ShowCopilotButton"  0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $adv "HideFileExt"        0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $adv "AutoCheckSelect"    0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds" "ShellFeedsTaskbarViewMode" 2 -ErrorAction SilentlyContinue
+    Write-Log "  Taskbar cleaned." "Green"
+
+    Write-Log "Disabling Widgets..." "Cyan"
+    $wp = "HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
+    if (-not (Test-Path $wp)) { New-Item -Path $wp -Force | Out-Null }
+    Set-ItemProperty $wp "AllowNewsAndInterests" 0 -ErrorAction SilentlyContinue
+
+    Write-Log "Disabling Edge startup boost..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled"  0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled" 0 -ErrorAction SilentlyContinue
+
+    Write-Log "Setting active update hours 8am-5pm..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" 8  -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd"   17 -ErrorAction SilentlyContinue
+
+    Write-Log "Disabling hibernation..." "Cyan"
+    powercfg.exe /hibernate off 2>&1 | Out-Null
+
+    Write-Log "Setting timezone to New Zealand..." "Cyan"
+    try { Set-TimeZone -Id "New Zealand Standard Time" -ErrorAction Stop; Write-Log "  Timezone set." "Green" }
+    catch { Write-Log "  Timezone change failed — set manually." "DarkYellow" }
+
+    Write-Log "Restoring Windows 10 right-click menu..." "Cyan"
+    $rc = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
+    if (-not (Test-Path $rc)) { New-Item -Path $rc -Force | Out-Null }
+    Set-ItemProperty $rc "(default)" "" -ErrorAction SilentlyContinue
+
+    Write-Log "Clearing startup Run keys..." "Cyan"
+    @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+      "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run") | ForEach-Object {
+        $p = $_
+        (Get-ItemProperty -Path $p -ErrorAction SilentlyContinue).PSObject.Properties |
+            Where-Object { $_.Name -notlike "PS*" } | ForEach-Object {
+                Write-Log "  Removing startup entry: $($_.Name)" "DarkYellow"
+                Remove-ItemProperty -Path $p -Name $_.Name -ErrorAction SilentlyContinue
+            }
+    }
+
+    Write-Log "Restarting Explorer to apply visual changes..." "Cyan"
+    Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Start-Process "explorer.exe"
+
+    Write-Log "Essential tweaks complete." "Green"
+}
+
+function Step-InstallApps {
+    Write-Log "=== STEP 6: APP INSTALLATION ===" "Yellow"
+
+    $apps = @(
+        "Microsoft.Office",
+        "Google.Chrome",
+        "Mozilla.Firefox",
+        "Google.GoogleDrive",
+        "VideoLAN.VLC",
+        "7zip.7zip",
+        "Adobe.Acrobat.Reader.64-bit"
+    )
+
+    Write-Log "Configuring winget..." "Cyan"
+    winget settings --enable bypasscertificatepinningformicrosoftstore
+    Start-Sleep -Seconds 2
+
+    foreach ($id in $apps) {
+        Write-Log "Installing $id..." "Cyan"
+        winget install --id $id -e --accept-source-agreements --accept-package-agreements --silent
+        Write-Log "  Done: $id" "Green"
+    }
+
+    # Set Chrome as default browser
+    Write-Log "Setting Chrome as default browser..." "Cyan"
+    $ce = "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe"
+    if (-not (Test-Path $ce)) { $ce = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+    if (Test-Path $ce) {
+        Start-Process $ce "--make-default-browser" -NoNewWindow -Wait
+        Write-Log "  Chrome default set." "Green"
+    } else {
+        Write-Log "  Chrome not found — set default manually." "DarkYellow"
+    }
+
+    # Set VLC as default media player
+    Write-Log "Setting VLC as default media player..." "Cyan"
+    $ve = "${env:ProgramFiles}\VideoLAN\VLC\vlc.exe"
+    if (-not (Test-Path $ve)) { $ve = "${env:ProgramFiles(x86)}\VideoLAN\VLC\vlc.exe" }
+    if (Test-Path $ve) {
+        ".mp4",".mkv",".avi",".mov",".wmv",".mp3",".wav",".flac",".m4a",".aac",".m4v",".ts",".mpg",".mpeg" | ForEach-Object {
+            $pid2 = "VLC$_"; $pp = "HKCU:\Software\Classes\$pid2"
+            if (-not (Test-Path $pp)) { New-Item -Path $pp -Force | Out-Null }
+            New-Item -Path "$pp\shell\open\command" -Force | Out-Null
+            Set-ItemProperty "$pp\shell\open\command" "(default)" "`"$ve`" `"%1`"" -ErrorAction SilentlyContinue
+            $ep = "HKCU:\Software\Classes\$_"
+            if (-not (Test-Path $ep)) { New-Item -Path $ep -Force | Out-Null }
+            Set-ItemProperty $ep "(default)" $pid2 -ErrorAction SilentlyContinue
+        }
+        Write-Log "  VLC defaults set." "Green"
+    } else {
+        Write-Log "  VLC not found — set default manually." "DarkYellow"
+    }
+
+    Write-Log "App installation complete." "Green"
+}
+
+# ============================================================
+# MAIN — TOTAL DEPLOY SEQUENCE
+# ============================================================
+Write-Log "╔══════════════════════════════════════╗" "Cyan"
+Write-Log "║   WRAYNET TOTAL DEPLOY — Standalone  ║" "Cyan"
+Write-Log "╚══════════════════════════════════════╝" "Cyan"
+Write-Log ""
+Write-Log "This will walk through all provision steps." "White"
+Write-Log "Press Ctrl+C at any time to abort." "Gray"
+Write-Log ""
+
+Step-Rename
+Step-CreateLocalAccount
+Step-DomainJoin
+Step-Activation
+Step-VendorPurge
+Step-Debloat
+Step-EssentialTweaks
+Step-InstallApps
+
+Write-Log ""
+Write-Log "╔══════════════════════════════════════╗" "Green"
+Write-Log "║   TOTAL DEPLOY COMPLETE              ║" "Green"
+Write-Log "╚══════════════════════════════════════╝" "Green"
+Write-Log ""
+
+$restart = Read-Host "Restart now to apply all changes? (Y/N)"
+if ($restart -match "^[Yy]") {
+    Write-Log "Restarting..." "Yellow"
+    Restart-Computer -Force
+} else {
+    Write-Log "Restart skipped — remember to reboot before using the machine." "DarkYellow"
+}
