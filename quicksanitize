@@ -337,7 +337,25 @@ $odPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"
 if(-not(Test-Path $odPolicy)){New-Item -Path $odPolicy -Force|Out-Null}
 Set-ItemProperty $odPolicy "DisableFileSyncNGSC" 1 -ErrorAction SilentlyContinue
 Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDrive" -ErrorAction SilentlyContinue
-Log "  OneDrive autostart process has been terminated." "Yellow"
+
+# Redirecting User Folders away from OneDrive
+Log "Reclaiming local storage from OneDrive's clutches..." "Cyan"
+$folders = @("Desktop", "Personal", "My Pictures", "My Video", "My Music")
+$shellFolders = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+foreach ($f in $folders) {
+    $current = (Get-ItemProperty $shellFolders).$f
+    if ($current -match "OneDrive") {
+        $newPath = $current -replace "OneDrive\\", ""
+        Set-ItemProperty -Path $shellFolders -Name $f -Value $newPath -ErrorAction SilentlyContinue
+    }
+}
+# Stop OneDrive from being the default Save location for Office
+$office = "HKCU:\Software\Microsoft\Office\Common\General"
+if(!(Test-Path $office)) { New-Item $office -Force | Out-Null }
+Set-ItemProperty -Path $office -Name "PreferCloudSaveLocations" -Value 0 -ErrorAction SilentlyContinue
+
+Log "  Default save locations restored to local disk." "Green"
+Log "  Onedrive has been castrated" "Green"
 
 # Teams
 $teamsPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftTeams"
