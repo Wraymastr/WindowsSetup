@@ -1,3 +1,5 @@
+# Self-elevate execution policy for this session
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 # ============================================================
 # QuickSanitize.ps1
 # Run as Administrator — no UI required
