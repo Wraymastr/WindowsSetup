@@ -54,7 +54,7 @@ $bloatApps = @(
     # Entertainment
     "*Clipchamp*","*ZuneMusic*","*ZuneVideo*",
     # Xbox
-    "*Xbox*","*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
+    "*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
     "*XboxIdentityProvider*","*XboxSpeechToTextOverlay*",
     # Bing & Search
     "*BingSearch*","*BingWeather*","*BingNews*","*BingFinance*",
