@@ -71,7 +71,6 @@ $bloatApps = @(
     "*GetStarted*",                    # "Tips" app
     "*SkypeApp*",
     "*WindowsAlarms*",                 # Clock/Timer
-    "*WindowsCamera*",
     "*WindowsSoundRecorder*",
     "*Microsoft.Wallet*",
     "*OutlookForWindows*",             # The "New Outlook" forced preview
