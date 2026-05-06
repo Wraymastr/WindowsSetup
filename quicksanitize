@@ -50,7 +50,7 @@ $bloatApps = @(
     # Communication & Productivity
     "*MicrosoftTeams*","*MSTeams*","*Cortana*",
     "*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
-    "*People*","Microsoft.Messaging","Microsoft.OneConnect",
+    "Microsoft.Messaging","Microsoft.OneConnect",
     # Entertainment
     "*Clipchamp*","*ZuneMusic*","*ZuneVideo*",
     # Xbox
