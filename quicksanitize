@@ -139,8 +139,8 @@ if($vendor -eq "Unknown"){
     Log "Running $vendor bloatware removal..." "Cyan"
 
     $vendorBloat = @{
-        "HP"       = @("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart","HP.HPAudioCenter","HP.HPSystemEventUtility","HP.HPEnhance","HP.HPPCHardwareDiagnosticsWindows")
-        "Dell"     = @("Dell.DellSupportAssistforPCs","Dell.DellOptimizer","Dell.DellDigitalDelivery","Dell.DellUpdate","Dell.DellCommandUpdate","Dell.DellPowerManager","Dell.DellCinemaGuide","Dell.DellMobileConnect","Dell.DellCinema")
+        "HP"       = @("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart","HP.HPAudioCenter","HP.HPSystemEventUtility","HP.HPEnhance","HP.HPPCHardwareDiagnosticsWindows","HP.HPNotifications","AD2F1837.HPPrinterControl")
+        "Dell"     = @("Dell.DellSupportAssistforPCs","Dell.DellOptimizer","Dell.DellDigitalDelivery","Dell.DellUpdate","Dell.DellCommandUpdate","Dell.DellPowerManager","Dell.DellCinemaGuide","Dell.DellMobileConnect","Dell.DellCinema","DellInc.DellSupportAssistforPCs")
         "Lenovo"   = @("E046963F.LenovoCompanion","E046963F.LenovoSettings","E0469640.LenovoUtility","LenovoCorporation.LenovoSettings","LenovoCorporation.LenovoID","LenovoCorporation.LenovoCompanion")
         "Acer"     = @("AcerIncorporated.AcerRegistration","AcerIncorporated.QuickAccess","AcerIncorporated.AcerCollection","AcerIncorporated.AcerCareCenterS","AcerIncorporated.AcerJumpStart")
         "ASUS"     = @("ASUSTeKCOMPUTERINC.MyASUS","ASUSTeKCOMPUTERINC.ASUSProductRegistrationProgram","ASUSTeKCOMPUTERINC.ASUSWelcome","ASUSTeKCOMPUTERINC.ASUSLiveUpdate")
@@ -257,6 +257,10 @@ Log "Disabling Edge startup boost..." "Cyan"
 Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled"   0 -ErrorAction SilentlyContinue
 Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled"  0 -ErrorAction SilentlyContinue
 Log "  Edge startup boost disabled." "Green"
+# Stop Edge from sharing data with Windows for "Personalization"
+$edgePers = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+if(!(Test-Path $edgePers)) { New-Item $edgePers -Force }
+Set-ItemProperty -Path $edgePers -Name "HubsSidebarEnabled" -Value 0
 
 # Update hours
 Log "Setting update active hours 8am-5pm..." "Cyan"
@@ -269,11 +273,6 @@ Log "Applying Explorer tweaks..." "Cyan"
 Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt"    0 -ErrorAction SilentlyContinue
 Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "AutoCheckSelect" 0 -ErrorAction SilentlyContinue
 Log "  File extensions visible, checkboxes disabled." "Green"
-
-# Hibernate
-Log "Disabling hibernation..." "Cyan"
-powercfg.exe /hibernate off 2>&1 | Out-Null
-Log "  Hibernation disabled." "Green"
 
 # Timezone
 Log "Setting timezone to NZ Standard Time..." "Cyan"
