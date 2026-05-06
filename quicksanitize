@@ -1,3 +1,4 @@
+powershell
 # ============================================================
 # QuickSanitize.ps1
 # Run as Administrator — no UI required
@@ -45,10 +46,25 @@ Write-Host ""
 Section "STEP 1 — MICROSOFT BLOAT REMOVAL"
 
 $bloatApps = @(
-    "*MicrosoftTeams*","*MSTeams*","*Clipchamp*","*Xbox*","*Cortana*",
-    "*MicrosoftNews*","*BingWeather*","*GetHelp*","*FeedbackHub*",
-    "*WindowsMaps*","*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
-    "*People*","*ZuneMusic*","*ZuneVideo*","Microsoft.Messaging","Microsoft.OneConnect"
+    # Communication & Productivity
+    "*MicrosoftTeams*","*MSTeams*","*Cortana*",
+    "*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
+    "*People*","Microsoft.Messaging","Microsoft.OneConnect",
+    # Entertainment
+    "*Clipchamp*","*ZuneMusic*","*ZuneVideo*",
+    # Xbox
+    "*Xbox*","*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
+    "*XboxIdentityProvider*","*XboxSpeechToTextOverlay*",
+    # Bing & Search
+    "*BingSearch*","*BingWeather*","*BingNews*","*BingFinance*",
+    "*BingSports*","*BingTranslator*","Microsoft.BingHealthAndFitness",
+    # News & Feeds
+    "*MicrosoftNews*","*WindowsFeedbackHub*",
+    # System Extras
+    "*GetHelp*","*FeedbackHub*","*WindowsMaps*",
+    "*MicrosoftSolitaireCollection*","*MixedReality*",
+    "*3DViewer*","*Microsoft3DViewer*","*Print3D*",
+    "*Microsoft.549981C3F5F10*"  # Cortana search app
 )
 
 foreach($app in $bloatApps){
@@ -63,6 +79,24 @@ foreach($app in $bloatApps){
             Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
         }
 }
+
+# Winget removal for Bing and News apps that resist AppX removal
+Log "Attempting Winget removal of Bing/News apps..." "Cyan"
+$wingetBloat = @(
+    "Microsoft.BingNews",
+    "Microsoft.BingWeather",
+    "Microsoft.BingSearch",
+    "Microsoft.BingFinance",
+    "Microsoft.BingSports",
+    "Microsoft.Todos",
+    "Microsoft.XboxApp",
+    "Microsoft.GamingApp"
+)
+foreach($app in $wingetBloat){
+    Log "  Winget uninstall: $app" "Gray"
+    winget uninstall --id $app -e --accept-source-agreements -h --force 2>&1 | Out-Null
+}
+
 Log "Microsoft bloat removal complete." "Green"
 
 # ============================================================
@@ -289,7 +323,85 @@ Log "  Copilot blocked." "Yellow"
 
 Log "  Autostart policies applied." "Green"
 
-# Restart Explorer
+# ============================================================
+# SECTION 4 — PRIVACY TWEAKS
+# ============================================================
+Section "STEP 4 — PRIVACY TWEAKS"
+
+# --- Recommendations & Offers ---
+Log "Turning off recommendations and offers..." "Cyan"
+# Tips, tricks, suggestions in Settings
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SoftLandingEnabled"               0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338389Enabled"  0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353694Enabled"  0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353696Enabled"  0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SystemPaneSuggestionsEnabled"     0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "PreInstalledAppsEnabled"          0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "OemPreInstalledAppsEnabled"       0 -ErrorAction SilentlyContinue
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SilentInstalledAppsEnabled"       0 -ErrorAction SilentlyContinue
+# Start menu app suggestions
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338388Enabled"  0 -ErrorAction SilentlyContinue
+# "Finish setting up your device" prompts
+Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement"  "ScoobeSystemSettingEnabled"       0 -ErrorAction SilentlyContinue
+# Settings app recommendations page
+$privSuggest = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Privacy"
+if(-not(Test-Path $privSuggest)){New-Item -Path $privSuggest -Force|Out-Null}
+Set-ItemProperty $privSuggest "TailoredExperiencesWithDiagnosticDataEnabled" 0 -ErrorAction SilentlyContinue
+Log "  Recommendations and offers disabled." "Green"
+
+# --- Custom Inking & Typing Dictionary ---
+Log "Turning off custom inking and typing dictionary..." "Cyan"
+$inkPath = "HKCU:\Software\Microsoft\InputPersonalization"
+if(-not(Test-Path $inkPath)){New-Item -Path $inkPath -Force|Out-Null}
+Set-ItemProperty $inkPath "RestrictImplicitInkCollection"   1 -ErrorAction SilentlyContinue
+Set-ItemProperty $inkPath "RestrictImplicitTextCollection"  1 -ErrorAction SilentlyContinue
+$inkGen = "HKCU:\Software\Microsoft\InputPersonalization\TrainedDataStore"
+if(-not(Test-Path $inkGen)){New-Item -Path $inkGen -Force|Out-Null}
+Set-ItemProperty $inkGen "HarvestContacts" 0 -ErrorAction SilentlyContinue
+$inkPersonal = "HKCU:\Software\Microsoft\Personalization\Settings"
+if(-not(Test-Path $inkPersonal)){New-Item -Path $inkPersonal -Force|Out-Null}
+Set-ItemProperty $inkPersonal "AcceptedPrivacyPolicy" 0 -ErrorAction SilentlyContinue
+Log "  Custom inking and typing dictionary disabled." "Green"
+
+# --- App Diagnostics Access ---
+Log "Turning off app diagnostics access..." "Cyan"
+$appDiag = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\appDiagnostics"
+if(-not(Test-Path $appDiag)){New-Item -Path $appDiag -Force|Out-Null}
+Set-ItemProperty $appDiag "Value" "Deny" -ErrorAction SilentlyContinue
+# Also set via policy
+$appDiagPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy"
+if(-not(Test-Path $appDiagPol)){New-Item -Path $appDiagPol -Force|Out-Null}
+Set-ItemProperty $appDiagPol "LetAppsGetDiagnosticInfo"        2 -ErrorAction SilentlyContinue
+Set-ItemProperty $appDiagPol "LetAppsGetDiagnosticInfo_UserInControlOfTheseApps" "" -ErrorAction SilentlyContinue
+Log "  App diagnostics access denied." "Green"
+
+# --- Search History ---
+Log "Turning off search history..." "Cyan"
+$searchSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings"
+if(-not(Test-Path $searchSettings)){New-Item -Path $searchSettings -Force|Out-Null}
+Set-ItemProperty $searchSettings "IsDeviceSearchHistoryEnabled" 0 -ErrorAction SilentlyContinue
+# Clear existing local search history
+$histPath = "$env:LOCALAPPDATA\Microsoft\Windows\ConnectedSearch\Search.history"
+if(Test-Path $histPath){ Remove-Item $histPath -Force -ErrorAction SilentlyContinue }
+Log "  Search history disabled and cleared." "Green"
+
+# --- Search My Accounts (cloud content / Microsoft account search) ---
+Log "Turning off 'Search my accounts'..." "Cyan"
+if(-not(Test-Path $searchSettings)){New-Item -Path $searchSettings -Force|Out-Null}
+Set-ItemProperty $searchSettings "IsAADCloudSearchEnabled"      0 -ErrorAction SilentlyContinue
+Set-ItemProperty $searchSettings "IsMSACloudSearchEnabled"      0 -ErrorAction SilentlyContinue
+Set-ItemProperty $searchSettings "IsWorkplaceSearchEnabled"     0 -ErrorAction SilentlyContinue
+# Policy enforcement
+if(-not(Test-Path $machinePol)){New-Item -Path $machinePol -Force|Out-Null}
+Set-ItemProperty $machinePol "ConnectedSearchUseWeb"            0 -ErrorAction SilentlyContinue
+Set-ItemProperty $machinePol "AllowCloudSearch"                 0 -ErrorAction SilentlyContinue
+Log "  Account search disabled." "Green"
+
+Log "Privacy tweaks complete." "Green"
+
+# ============================================================
+# RESTART EXPLORER
+# ============================================================
 Log "Restarting Explorer to apply visual changes..." "Cyan"
 Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
