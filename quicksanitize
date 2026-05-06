@@ -47,25 +47,40 @@ Write-Host ""
 Section "STEP 1 — MICROSOFT BLOAT REMOVAL"
 
 $bloatApps = @(
-    # Communication & Productivity
     "*MicrosoftTeams*","*MSTeams*","*Cortana*",
     "*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
     "Microsoft.Messaging","Microsoft.OneConnect",
-    # Entertainment
     "*Clipchamp*","*ZuneMusic*","*ZuneVideo*",
-    # Xbox
-    "*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
+    "*Xbox*","*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
     "*XboxIdentityProvider*","*XboxSpeechToTextOverlay*",
-    # Bing & Search
     "*BingSearch*","*BingWeather*","*BingNews*","*BingFinance*",
     "*BingSports*","*BingTranslator*","Microsoft.BingHealthAndFitness",
-    # News & Feeds
     "*MicrosoftNews*","*WindowsFeedbackHub*",
-    # System Extras
     "*GetHelp*","*FeedbackHub*","*WindowsMaps*",
     "*MicrosoftSolitaireCollection*","*MixedReality*",
     "*3DViewer*","*Microsoft3DViewer*","*Print3D*",
-    "*Microsoft.549981C3F5F10*"  # Cortana search app
+    "*Microsoft.549981C3F5F10*",
+
+    # ---COPILOT ---
+    "*Microsoft.Copilot*",             # The main Copilot app
+    "*Microsoft.Windows.Copilot*",     # System-integrated version
+    "*EdgeEdgeWatson*",                # Edge's AI feedback/integration
+
+    # --- PERSISTENT SYSTEM BLOAT ---
+    "*People*",                        # Microsoft.People
+    "*GetStarted*",                    # "Tips" app
+    "*SkypeApp*",
+    "*WindowsAlarms*",                 # Clock/Timer
+    "*WindowsCamera*",
+    "*WindowsSoundRecorder*",
+    "*Microsoft.Wallet*",
+    "*OutlookForWindows*",             # The "New Outlook" forced preview
+    "*PowerAutomateDesktop*",
+
+    # --- THIRD-PARTY SPONSORED (OEM) ---
+    "*Disney*","*Spotify*","*Netflix*",
+    "*CandyCrush*","*HiddenCity*",
+    "*TikTok*","*Instagram*"
 )
 
 foreach($app in $bloatApps){
