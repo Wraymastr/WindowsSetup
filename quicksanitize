@@ -451,7 +451,8 @@ Log "  Explorer restarted." "Green"
 Write-Host ""
 Write-Host "  +==========================================+" -ForegroundColor Green
 Write-Host "  |         SYSTEM SANITIZE COMPLETE         |" -ForegroundColor Green
-Write-Host "  |         Restart is recommended.          |" -ForegroundColor Green
+Write-Host "  |       Microsoft has been reclaimed       |" -ForegroundColor Green
+Write-Host "  |             You're Welcome.              |" -ForegroundColor Green
 Write-Host "  +==========================================+" -ForegroundColor Green
 Write-Host ""
 pause
