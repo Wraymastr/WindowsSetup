@@ -40,7 +40,17 @@ Write-Host "  Computer  : $env:COMPUTERNAME" -ForegroundColor Gray
 Write-Host "  User      : $env:USERNAME" -ForegroundColor Gray
 Write-Host "  Date      : $(Get-Date -Format 'dd MMM yyyy HH:mm')" -ForegroundColor Gray
 Write-Host ""
+Write-Host "  Preparing for full system assault..." -ForegroundColor Red
+Write-Host "  Targeting bloatware, telemetry, and Microsofts bad decisions." -ForegroundColor Gray
+Write-Host ""
 
+# Dramatic Countdown
+foreach ($i in 3..1) {
+    Write-Host "  Commencing in $i... " -NoNewline -ForegroundColor Yellow
+    Start-Sleep -Seconds 1
+}
+Write-Host "  ENGAGING.`n" -ForegroundColor Red
+Start-Sleep -Milliseconds 500
 # ============================================================
 # SECTION 1 — MS BLOAT REMOVAL
 # ============================================================
@@ -208,7 +218,7 @@ Section "STEP 3 — ESSENTIAL TWEAKS"
 Log "Disabling telemetry..." "Cyan"
 Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -ErrorAction SilentlyContinue
 Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
-Log "  Telemetry disabled." "Green"
+Log "  Telemetry is dead. Microsoft can mind its own business now.." "Green"
 
 $ads = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
 "SubscribedContent-310093Enabled","SubscribedContent-353696Enabled",
@@ -233,7 +243,7 @@ $machinePol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
 if(-not(Test-Path $machinePol)){New-Item -Path $machinePol -Force|Out-Null}
 Set-ItemProperty $machinePol "DisableWebSearch"      1 -ErrorAction SilentlyContinue
 Set-ItemProperty $machinePol "ConnectedSearchUseWeb" 0 -ErrorAction SilentlyContinue
-Log "  Start menu Bing search has been ... obliterated." "Green"
+Log "  Search is local again. No more BING in your menus." "Green"
 
 # Taskbar
 Log "Cleaning taskbar..." "Cyan"
@@ -244,6 +254,11 @@ Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advan
 Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa"                 0 -ErrorAction SilentlyContinue
 Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton"         0 -ErrorAction SilentlyContinue
 Log "  Taskbar cleaned." "Green"
+
+# Move Taskbar Alignment to the Left (Win10 style)
+Log "Moving Taskbar alignment to the left..." "Cyan"
+Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarAl" -Value 0 -ErrorAction SilentlyContinue
+Log "  Taskbar has moved back to the left, and is finally free" "Green"
 
 # Widgets
 Log "Disabling Widgets..." "Cyan"
@@ -269,11 +284,18 @@ Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHou
 Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd"   17 -ErrorAction SilentlyContinue
 Log "  Active hours set." "Green"
 
+# Disable Windows Spotlight & Tips
+Log "Silencing Microsoft's 'helpful' suggestions..." "Cyan"
+$capPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+Set-ItemProperty -Path $capPath -Name "SoftLandingEnabled" -Value 0 -ErrorAction SilentlyContinue
+Set-ItemProperty -Path $capPath -Name "SubscribedContent-338389Enabled" -Value 0 -ErrorAction SilentlyContinue
+Log "  Windows unsolicited advice has been terminated." "Green"
+
 # Explorer tweaks
-Log "Applying Explorer tweaks..." "Cyan"
+Log "Restoring sanity to File Explorer......" "Cyan"
 Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt"    0 -ErrorAction SilentlyContinue
 Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "AutoCheckSelect" 0 -ErrorAction SilentlyContinue
-Log "  File extensions visible, checkboxes disabled." "Green"
+Log "  File extensions are visible. No more guessing games." "Green"
 
 # Timezone
 Log "Setting timezone to NZ Standard Time..." "Cyan"
@@ -285,11 +307,11 @@ try {
 }
 
 # Right-click menu
-Log "Restoring Windows 10 right-click menu..." "Cyan"
+Log "Reviving Windows 10 right-click menu..." "Cyan"
 $rc = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
 if(-not(Test-Path $rc)){New-Item -Path $rc -Force|Out-Null}
 Set-ItemProperty $rc "(default)" "" -ErrorAction SilentlyContinue
-Log "  Right-click menu restored." "Green"
+Log "  Right-click menu restored. Welcome back old friend" "Green"
 
 # Run key cleanup
 Log "Clearing startup Run keys..." "Cyan"
@@ -305,7 +327,7 @@ Log "Clearing startup Run keys..." "Cyan"
 Log "  Run keys cleared." "Green"
 
 # Autostart policies (no Task Scheduler calls — instant)
-Log "Blocking Microsoft app autostart via policy..." "Cyan"
+Log "Sweeping the startup porch......" "Cyan"
 
 # Edge
 Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Microsoft Edge" -ErrorAction SilentlyContinue
@@ -336,7 +358,7 @@ foreach($p in @($copU,$copM)){
 Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0 -ErrorAction SilentlyContinue
 Log "  Copilot blocked." "Yellow"
 
-Log "  Autostart policies applied." "Green"
+Log "  Startup cleared. The boot process is finally at peace." "Green"
 
 # ============================================================
 # SECTION 4 — PRIVACY TWEAKS
@@ -413,6 +435,7 @@ Set-ItemProperty $machinePol "AllowCloudSearch"                 0 -ErrorAction S
 Log "  Account search disabled." "Green"
 
 Log "Privacy tweaks complete." "Green"
+Log "System is now free of ads and trackers" "Green"
 
 # ============================================================
 # RESTART EXPLORER
@@ -429,7 +452,7 @@ Log "  Explorer restarted." "Green"
 Write-Host ""
 Write-Host "  +==========================================+" -ForegroundColor Green
 Write-Host "  |         QUICK SANITIZE COMPLETE          |" -ForegroundColor Green
-Write-Host "  |     A restart is recommended.            |" -ForegroundColor Green
+Write-Host "  |         Restart is recommended.          |" -ForegroundColor Green
 Write-Host "  +==========================================+" -ForegroundColor Green
 Write-Host ""
 pause
