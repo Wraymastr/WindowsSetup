@@ -33,7 +33,7 @@ Clear-Host
 Write-Host ""
 Write-Host "  +==========================================+" -ForegroundColor Cyan
 Write-Host "  |       WRAYNET QUICK SANITIZE             |" -ForegroundColor Cyan
-Write-Host "  |  Bloat + Vendor Purge + Essential Tweaks |" -ForegroundColor Cyan
+Write-Host "  |        Full System Sanitize              |" -ForegroundColor Cyan
 Write-Host "  +==========================================+" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Computer  : $env:COMPUTERNAME" -ForegroundColor Gray
@@ -51,7 +51,7 @@ $bloatApps = @(
     "*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
     "Microsoft.Messaging","Microsoft.OneConnect",
     "*Clipchamp*","*ZuneMusic*","*ZuneVideo*",
-    "*Xbox*","*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
+    "*Xbox","*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
     "*XboxIdentityProvider*","*XboxSpeechToTextOverlay*",
     "*BingSearch*","*BingWeather*","*BingNews*","*BingFinance*",
     "*BingSports*","*BingTranslator*","Microsoft.BingHealthAndFitness",
@@ -112,7 +112,7 @@ foreach($app in $wingetBloat){
     winget uninstall --id $app -e --accept-source-agreements -h --force 2>&1 | Out-Null
 }
 
-Log "Microsoft bloat removal complete." "Green"
+Log "Microsoft has been successfully debloated.." "Green"
 
 # ============================================================
 # SECTION 2 — VENDOR PURGE
@@ -196,7 +196,7 @@ if($vendor -eq "Unknown"){
         }
     }
 
-    Log "$vendor purge complete." "Green"
+    Log "$vendor purge ... complete." "Green"
 }
 
 # ============================================================
@@ -233,7 +233,7 @@ $machinePol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
 if(-not(Test-Path $machinePol)){New-Item -Path $machinePol -Force|Out-Null}
 Set-ItemProperty $machinePol "DisableWebSearch"      1 -ErrorAction SilentlyContinue
 Set-ItemProperty $machinePol "ConnectedSearchUseWeb" 0 -ErrorAction SilentlyContinue
-Log "  Bing search disabled." "Green"
+Log "  Start menu Bing search has been ... obliterated." "Green"
 
 # Taskbar
 Log "Cleaning taskbar..." "Cyan"
@@ -250,7 +250,7 @@ Log "Disabling Widgets..." "Cyan"
 $wp = "HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
 if(-not(Test-Path $wp)){New-Item -Path $wp -Force|Out-Null}
 Set-ItemProperty $wp "AllowNewsAndInterests" 0 -ErrorAction SilentlyContinue
-Log "  Widgets disabled." "Green"
+Log "  Taskbar ads are finished." "Green"
 
 # Edge
 Log "Disabling Edge startup boost..." "Cyan"
@@ -261,6 +261,7 @@ Log "  Edge startup boost disabled." "Green"
 $edgePers = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
 if(!(Test-Path $edgePers)) { New-Item $edgePers -Force }
 Set-ItemProperty -Path $edgePers -Name "HubsSidebarEnabled" -Value 0
+Log "  Edge has been gimped." "Green"
 
 # Update hours
 Log "Setting update active hours 8am-5pm..." "Cyan"
@@ -315,7 +316,7 @@ $odPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"
 if(-not(Test-Path $odPolicy)){New-Item -Path $odPolicy -Force|Out-Null}
 Set-ItemProperty $odPolicy "DisableFileSyncNGSC" 1 -ErrorAction SilentlyContinue
 Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDrive" -ErrorAction SilentlyContinue
-Log "  OneDrive autostart blocked." "Yellow"
+Log "  OneDrive autostart process has been killed." "Yellow"
 
 # Teams
 $teamsPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftTeams"
@@ -323,7 +324,7 @@ if(-not(Test-Path $teamsPolicy)){New-Item -Path $teamsPolicy -Force|Out-Null}
 Set-ItemProperty $teamsPolicy "DisableAutoStart" 1 -ErrorAction SilentlyContinue
 Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Teams" -ErrorAction SilentlyContinue
 Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "com.squirrel.Teams.Teams" -ErrorAction SilentlyContinue
-Log "  Teams autostart blocked." "Yellow"
+Log "  Teams autostart process has also been killed." "Yellow"
 
 # Copilot
 $copU = "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot"
