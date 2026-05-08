@@ -1,6 +1,5 @@
-Selection of powershell scripts to help with the management of windows 11.
----------------------------------------------------------------
 WRAYNET SYSTEM SANITIZE
+---------------------------------------------------------------
 
 A scorched-earth PowerShell script to reclaim Windows from bloatware, telemetry, and questionable UI decisions.
 ## What it Does
