@@ -1,0 +1,194 @@
+# Wraynet Windows Utility
+**A Windows 11 deployment and management tool for IT technicians**
+
+*Vibed by Kyran Wray*
+
+---
+
+## Overview
+
+Wraynet Windows Utility is a PowerShell-based GUI tool designed to streamline the setup and maintenance of Windows 11 machines — particularly HP laptops and desktops deployed in school environments. It wraps common IT tasks into a clean dark-themed interface so a full machine setup can be completed in minutes rather than hours.
+
+A standalone `QuickSanitize.ps1` script is also included for headless runs with no UI required.
+
+---
+
+## Requirements
+
+- Windows 10 / 11
+- PowerShell 5.1+ (built into all modern Windows installs)
+- **Must be run as Administrator**
+- Winget (Windows Package Manager) — included by default on Windows 11
+
+---
+
+## Getting Started
+
+1. Right-click `WraynetUtility.ps1` → **Run with PowerShell**
+   - Or: open PowerShell as Administrator and run `.\WraynetUtility.ps1`
+2. If prompted about execution policy, run this first:
+   ```powershell
+   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+   ```
+
+To compile to a standalone `.exe`:
+```powershell
+Install-Module ps2exe -Scope CurrentUser -Force
+ps2exe .\WraynetUtility.ps1 .\WraynetUtility.exe -requireAdmin -noConsole
+```
+
+---
+
+## Features
+
+### Info Panel
+Live system information displayed at launch — click any field to act on it directly.
+
+| Field | Click Action |
+|---|---|
+| COMPUTER | Rename machine |
+| USER | Change password |
+| WINDOWS | Enter product key / activate |
+| DOMAIN | Join or leave domain |
+| NETWORK | Open network manager |
+| UPTIME | Restart or shut down |
+
+---
+
+### Total Deploy
+Guided full setup sequence for new machines. Walks through:
+1. Rename computer
+2. Create local account
+3. Join domain *(rename and join are applied atomically — no stale name in AD)*
+4. Activate Windows
+5. Vendor Purge
+6. System Sanitize
+7. Install apps
+8. Add printer *(optional)*
+
+---
+
+### System Sanitize
+Removes Microsoft bloat and applies essential tweaks in one pass.
+
+**Bloat removal** strips: Teams, Clipchamp, Xbox, Cortana, News, Weather, Maps, People, Feedback Hub, Your Phone, To Do, Office Hub, ZuneMusic/Video, Messaging, OneConnect.
+
+**Essential tweaks** apply:
+- Telemetry and DiagTrack service disabled
+- Bing and Cortana removed from Start Menu search
+- Taskbar cleaned (Meet Now, People, Task View, Widgets, Copilot removed)
+- File extensions shown by default
+- Item checkboxes disabled in Explorer
+- Hibernation disabled
+- Windows Update active hours set to 8am–5pm
+- Windows 10 right-click context menu restored
+- Startup Run keys cleared
+- Edge startup boost and background mode disabled
+- OneDrive, Teams, Copilot autostart blocked via policy
+- Timezone set to New Zealand Standard Time
+- Explorer restarted to apply visual changes
+
+---
+
+### Vendor Purge
+Auto-detects the machine manufacturer and removes vendor-specific bloatware.
+
+**Supported vendors:** HP, Dell, Lenovo, Acer, ASUS, MSI, Toshiba, Samsung, Microsoft Surface
+
+HP machines additionally run a WMI-based removal pass targeting HP Wolf Security and HP Sure Sense.
+
+---
+
+### Application Provisioning
+Checkbox-based app installer powered by Winget.
+
+**Critical (ticked by default):** Microsoft 365, Chrome, Firefox, Google Drive, VLC, 7-Zip, Adobe Acrobat Reader
+
+**Optional:** LocalSend, CrystalDiskInfo, Angry IP Scanner, Everything, HP Support Assistant, Malwarebytes, Winaero Tweaker, O&O ShutUp10, PowerToys, Process Explorer, Bulk Crap Uninstaller, Autoruns, K-Lite Codec Pack
+
+**Extras:** Set Chrome as default browser, Set VLC as default media player, Update all installed applications
+
+Firefox installs with **uBlock Origin** pre-deployed to the distribution extensions folder — activates automatically on first launch.
+
+---
+
+### Network Manager
+- View all active adapters with IP, subnet, gateway and DNS
+- Apply static IP configuration per adapter
+- Switch adapter back to DHCP
+- Open Network Connections (ncpa.cpl)
+
+---
+
+### Domain Tools
+- Join / Leave domain
+- Generate Group Policy report (saves HTML to Desktop)
+- Force `gpupdate /force`
+- Flush DNS and re-register
+- View `dsregcmd /status` output
+- Leave Azure AD join
+
+---
+
+### User Provisioning
+Create local accounts with username, full name, password and admin/standard group selection. Includes a shortcut to `lusrmgr.msc` for full user management.
+
+---
+
+### Printer Setup
+Add network printers by IP with protocol selection (RAW/LPR/IPP/WSD). Supports driver installation from a local `.inf` file or a UNC network share path.
+
+---
+
+### System Diagnostics
+- Battery report (HTML, opens automatically)
+- Energy efficiency report
+- System file health check (DISM + SFC)
+- Memory diagnostic (schedules on next boot)
+- Disk health report (SMART status, saves to Desktop)
+- Driver Verifier (advanced)
+- Hardware info dump — CPU, RAM, GPU (saves to Desktop)
+- Windows Update repair — resets services, clears cache, re-registers DLLs, triggers scan
+
+---
+
+## QuickSanitize (Headless)
+
+`QuickSanitize.ps1` runs the full Bloat Removal + Vendor Purge + Essential Tweaks sequence with no UI — pure console output, suitable for running remotely or via a login script.
+
+```powershell
+# Run as Administrator
+.\QuickSanitize.ps1
+```
+
+---
+
+## Customisation
+
+| What to change | Where |
+|---|---|
+| Default Windows product key | Search `DEFAULT KEY` in the script |
+| App install list | `AP-Check` entries in `Show-AppPicker` |
+| Vendor bloat lists | `$vendorBloat` and `$vendorWinget` hashtables in `Run-VendorPurge` |
+| Timezone | `Set-TimeZone -Id` in `Run-EssentialTweaks` |
+| Update active hours | `ActiveHoursStart` / `ActiveHoursEnd` in `Run-EssentialTweaks` |
+| Startup banner text | `$bannerLines` array |
+
+---
+
+## Notes
+
+- Some AppX packages (Xbox, People) may fail to remove on education or managed builds — these errors are non-fatal and can be ignored
+- The Windows 10 right-click menu restore requires an Explorer restart to take effect — this happens automatically
+- Domain join with simultaneous rename uses `Add-Computer -NewName` to ensure Active Directory receives the correct name immediately
+- uBlock Origin is deployed via the Firefox distribution extensions folder — the URL points to a specific version and may need updating periodically
+
+---
+
+## Version
+
+**v2.0** — May 2026
+
+---
+
+*Built for NZ school IT environments. Not affiliated with Microsoft, HP, or any vendor mentioned.*
