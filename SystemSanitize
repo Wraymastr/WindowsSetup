@@ -377,6 +377,13 @@ Log "  Copilot blocked." "Yellow"
 
 Log "  OneDrive and Teams have been neutralized." "Green"
 
+# Disable Edge Local AI Foundational Models
+Log "Disabling Edge Local AI Foundational Models..." "Cyan"
+$edgePolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+if(!(Test-Path $edgePolicy)) { New-Item $edgePolicy -Force | Out-Null }
+Set-ItemProperty -Path $edgePolicy -Name "GenAILocalFoundationalModelSettings" -Value 1 -ErrorAction SilentlyContinue
+Log "  Local AI models disabled for Edge." "Green"
+
 # ============================================================
 # SECTION 4 — PRIVACY TWEAKS
 # ============================================================
