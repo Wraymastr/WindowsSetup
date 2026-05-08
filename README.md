@@ -1,4 +1,4 @@
-# Wraynet Windows Utility
+# Windows Setup Tools
 
 **A comprehensive Windows 11 deployment and management suite for IT technicians.**
 **Vibed by Kyran Wray** — *v2.0 (May 2026)*
@@ -11,9 +11,9 @@
 
 The repository consists of three primary execution modes:
 
-1. **WraynetUtility.ps1 (The GUI):** The full dark-themed management console.
-2. **TotalDeploy-Standalone.ps1 (The Provisioner):** A CLI-guided full deployment sequence.
-3. **QuickSanitize.ps1 (The Headless Script):** A "scorched-earth" debloat and tweak script for rapid runs.
+1. **WraynetWindowsUtility.ps1 (The GUI):** The full dark-themed management console.
+2. **LaptopDeployment-Standalone.ps1 (The Provisioner):** A CLI-guided full deployment sequence.
+3. **SystemSanitize.ps1 (The Headless Script):** A "scorched-earth" debloat and tweak script for rapid runs.
 
 ---
 
@@ -39,15 +39,15 @@ The flagship tool. It wraps complex management tasks into a clean, actionable in
 * **Printer Setup:** Add network printers via IP (RAW/LPR/IPP) with `.inf` driver support.
 * **Diagnostics:** Battery reports, SMART disk health, and Windows Update repair tools.
 
-### 2. Total Deploy (Standalone CLI)
+### 2. Laptop Deployment (Standalone CLI)
 
 Designed for rapid-fire provisioning where a GUI isn't desired but user input is still needed. It walks the tech through a linear path:
 
 > **Rename** → **Local Account** → **Domain Join** → **Activation** → **Vendor Purge** → **Debloat** → **Apps** → **Restart**
 
-### 3. QuickSanitize (Headless)
+### 3. SystemSanitize (Headless)
 
-The "Sanity" script. It runs with zero UI, making it perfect for remote execution or deployment via USB.
+The "Sanity" script. It runs quickly with zero UI, making it perfect for remote execution or deployment via USB.
 
 * **Microsoft Purge:** Removes 30+ bloatware apps including Copilot, Teams, and Xbox.
 * **Vendor Purge:** Auto-detects HP, Dell, Lenovo, etc., and nukes manufacturer bloat (e.g., HP Wolf Security).
