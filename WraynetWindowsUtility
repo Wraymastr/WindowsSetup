@@ -699,52 +699,109 @@ $Form.Add_Resize({
 # ============================================================
 # LOGIC FUNCTIONS
 # ============================================================
-function Run-Debloat {
-    Write-ToUI "Starting Microsoft bloat removal..." "Yellow"
-    $apps = @(
-        "*MicrosoftTeams*","*MSTeams*","*Clipchamp*","*Xbox*","*Cortana*",
-        "*MicrosoftNews*","*BingWeather*","*GetHelp*","*FeedbackHub*",
-        "*WindowsMaps*","*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
-        "*People*","*ZuneMusic*","*ZuneVideo*","Microsoft.Messaging","Microsoft.OneConnect"
+
+
+function Run-SystemSanitize {
+
+    function Log($msg, $col="Lime") { Write-ToUI $msg $col }
+    function Flavor($msg) { Write-ToUI "  >> $msg" "Gray" }
+    function Section($title) {
+        Write-ToUI " "
+        Write-ToUI "=== $title ===" "Yellow"
+    }
+
+    Write-ToUI " "
+    Write-ToUI "Windows made some choices. We are unmaking them." "Cyan"
+
+    # ============================================================
+    # STEP 1 — MICROSOFT BLOAT REMOVAL
+    # ============================================================
+    Section "STEP 1 - MICROSOFT BLOAT REMOVAL"
+
+    $bloatApps = @(
+        "*MicrosoftTeams*","*MSTeams*","*Cortana*",
+        "*YourPhone*","*MicrosoftToDo*","*MicrosoftOfficeHub*",
+        "Microsoft.Messaging","Microsoft.OneConnect",
+        "*Clipchamp*","*ZuneMusic*","*ZuneVideo*",
+        "*Xbox","*XboxApp*","*XboxGameOverlay*","*XboxGamingOverlay*",
+        "*XboxIdentityProvider*","*XboxSpeechToTextOverlay*",
+        "*BingSearch*","*BingWeather*","*BingNews*","*BingFinance*",
+        "*BingSports*","*BingTranslator*","Microsoft.BingHealthAndFitness",
+        "*MicrosoftNews*","*WindowsFeedbackHub*",
+        "*GetHelp*","*FeedbackHub*","*WindowsMaps*",
+        "*MicrosoftSolitaireCollection*","*MixedReality*",
+        "*3DViewer*","*Microsoft3DViewer*","*Print3D*",
+        "*Microsoft.549981C3F5F10*",
+        # --- COPILOT ---
+        "*Microsoft.Copilot*",
+        "*Microsoft.Windows.Copilot*",
+        "*EdgeEdgeWatson*",
+        # --- PERSISTENT SYSTEM BLOAT ---
+        "*People",
+        "*GetStarted*",
+        "*SkypeApp*",
+        "*WindowsAlarms*",
+        "*WindowsSoundRecorder*",
+        "*Microsoft.Wallet*",
+        "*OutlookForWindows*",
+        "*PowerAutomateDesktop*",
+        # --- THIRD-PARTY SPONSORED (OEM) ---
+        "*Disney*","*Spotify*","*Netflix*",
+        "*CandyCrush*","*HiddenCity*",
+        "*TikTok*","*Instagram*"
     )
-    foreach($app in $apps){
-        Write-ToUI "Checking: $app"
-        Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue|ForEach-Object{
-            Write-ToUI "  Removing: $($_.Name)" "Orange"
+
+    foreach($app in $bloatApps){
+        Log "Checking: $app" "Gray"
+        Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue | ForEach-Object {
+            Log "  Removing: $($_.Name)" "Orange"
             Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue
         }
-        Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue|
-            Where-Object{$_.DisplayName -like $app}|ForEach-Object{
-                Write-ToUI "  Removing provisioned: $($_.DisplayName)" "Orange"
+        Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+            Where-Object {$_.DisplayName -like $app} | ForEach-Object {
+                Log "  Removing provisioned: $($_.DisplayName)" "Orange"
                 Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
             }
     }
-    Write-ToUI "Bloat removal complete!" "Lime"
-}
 
-function Run-EssentialTweaks {
-    Write-ToUI "=== ESSENTIAL TWEAKS STARTING ===" "Yellow"
+    Log "Attempting Winget removal of Bing/News apps..." "Cyan"
+    $wingetBloat = @(
+        "Microsoft.BingNews","Microsoft.BingWeather","Microsoft.BingSearch",
+        "Microsoft.BingFinance","Microsoft.BingSports","Microsoft.Todos",
+        "Microsoft.XboxApp","Microsoft.GamingApp"
+    )
+    foreach($app in $wingetBloat){
+        Log "  Winget uninstall: $app" "Gray"
+        winget uninstall --id $app -e --accept-source-agreements -h --force 2>&1 | Out-Null
+    }
+    Log "Microsoft bloat removal complete." "Lime"
+    Flavor "This is a work computer, not a Solitaire cabinet. Evicted."
 
-    # --- Telemetry & Privacy ---
-    Write-ToUI "Disabling telemetry..." "Cyan"
+    # ============================================================
+    # STEP 2 — ESSENTIAL TWEAKS
+    # ============================================================
+    Section "STEP 2 - ESSENTIAL TWEAKS"
+
+    Log "Disabling telemetry..." "Cyan"
     Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" "AllowTelemetry" 0 -ErrorAction SilentlyContinue
     Set-Service -Name "DiagTrack" -StartupType Disabled -ErrorAction SilentlyContinue
-    Write-ToUI "  Telemetry disabled." "Lime"
+    Log "  Telemetry disabled." "Lime"
+    Flavor "Microsoft's diagnostics team just lost a data point."
 
-    $ads="HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+    $ads = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
     "SubscribedContent-310093Enabled","SubscribedContent-353696Enabled",
     "RotatingLockScreenOverlayEnabled","SubscribedContent-338387Enabled" | ForEach-Object {
         Set-ItemProperty -Path $ads -Name $_ -Value 0 -ErrorAction SilentlyContinue
     }
     Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" "Enabled" 0 -ErrorAction SilentlyContinue
-    Write-ToUI "  Ads and tailored experiences disabled." "Lime"
+    Log "  Ads and tailored experiences disabled." "Lime"
+    Flavor "You are no longer a demographic. Congratulations."
 
-    # --- Bing Search ---
-    Write-ToUI "Disabling Bing in Start Menu..." "Cyan"
+    Log "Disabling Bing in Start Menu..." "Cyan"
     $searchPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"
     if(-not(Test-Path $searchPath)){New-Item -Path $searchPath -Force|Out-Null}
-    Set-ItemProperty $searchPath "BingSearchEnabled"        0 -ErrorAction SilentlyContinue
-    Set-ItemProperty $searchPath "CortanaConsent"           0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchPath "BingSearchEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchPath "CortanaConsent" 0 -ErrorAction SilentlyContinue
     Set-ItemProperty $searchPath "AllowSearchToUseLocation" 0 -ErrorAction SilentlyContinue
     Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings" "IsDynamicSearchBoxPresent" 0 -ErrorAction SilentlyContinue
     $searchPol = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
@@ -752,114 +809,227 @@ function Run-EssentialTweaks {
     Set-ItemProperty $searchPol "DisableSearchBoxSuggestions" 1 -ErrorAction SilentlyContinue
     $machinePol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
     if(-not(Test-Path $machinePol)){New-Item -Path $machinePol -Force|Out-Null}
-    Set-ItemProperty $machinePol "DisableWebSearch"      1 -ErrorAction SilentlyContinue
+    Set-ItemProperty $machinePol "DisableWebSearch" 1 -ErrorAction SilentlyContinue
     Set-ItemProperty $machinePol "ConnectedSearchUseWeb" 0 -ErrorAction SilentlyContinue
-    Write-ToUI "  Bing search disabled." "Lime"
+    Log "  Bing search disabled." "Lime"
+    Flavor "Bing has been shown the door. It never paid rent here."
 
-    # --- Taskbar ---
-    Write-ToUI "Cleaning taskbar..." "Cyan"
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds"             "ShellFeedsTaskbarViewMode" 2 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "PeopleBand"                0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow"            1 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowTaskViewButton"         0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa"                 0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton"         0 -ErrorAction SilentlyContinue
-    Write-ToUI "  Taskbar cleaned." "Lime"
+    Log "Cleaning taskbar..." "Cyan"
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds" "ShellFeedsTaskbarViewMode" 2 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "PeopleBand" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" "HideSCAMeetNow" 1 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowTaskViewButton" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "TaskbarDa" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0 -ErrorAction SilentlyContinue
+    Log "  Taskbar cleaned." "Lime"
+    Flavor "Taskbar decluttered. It was starting to look like a browser with too many tabs."
 
-    # --- Widgets ---
-    Write-ToUI "Disabling Widgets..." "Cyan"
-    $wp="HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
+    Log "Moving Taskbar alignment to the left..." "Cyan"
+    Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "TaskbarAl" -Value 0 -ErrorAction SilentlyContinue
+    Log "  Taskbar alignment set to left." "Lime"
+    Flavor "Start button nudged back to the corner where it's lived for 25 years."
+
+    Log "Disabling Widgets..." "Cyan"
+    $wp = "HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
     if(-not(Test-Path $wp)){New-Item -Path $wp -Force|Out-Null}
     Set-ItemProperty $wp "AllowNewsAndInterests" 0 -ErrorAction SilentlyContinue
-    Write-ToUI "  Widgets disabled." "Lime"
+    Log "  Widgets disabled." "Lime"
+    Flavor "Nobody asked for a stock ticker and three weather apps on their desktop."
 
-    # --- Edge ---
-    Write-ToUI "Disabling Edge startup boost..." "Cyan"
-    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled"   0 -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled"  0 -ErrorAction SilentlyContinue
-    Write-ToUI "  Edge startup boost disabled." "Lime"
+    Log "Disabling Edge startup boost..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "StartupBoostEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Edge" "BackgroundModeEnabled" 0 -ErrorAction SilentlyContinue
+    Log "  Edge startup boost disabled." "Lime"
+    Flavor "Edge no longer gets to run in the background pretending it's still needed."
 
-    # --- Update hours ---
-    Write-ToUI "Setting update active hours 8am-5pm..." "Cyan"
-    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" 8  -ErrorAction SilentlyContinue
-    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd"   17 -ErrorAction SilentlyContinue
-    Write-ToUI "  Active hours set." "Lime"
+    $edgePers = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+    if(!(Test-Path $edgePers)) { New-Item $edgePers -Force | Out-Null }
+    Set-ItemProperty -Path $edgePers -Name "HubsSidebarEnabled" -Value 0 -ErrorAction SilentlyContinue
+    Log "  Edge sidebar/personalization disabled." "Lime"
+    Flavor "Edge's sidebar has been quietly put back in its box."
 
-    # --- Explorer tweaks ---
-    Write-ToUI "Applying Explorer tweaks..." "Cyan"
-    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt"    0 -ErrorAction SilentlyContinue
+    Log "Setting update active hours 8am-5pm..." "Cyan"
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursStart" 8 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings" "ActiveHoursEnd" 17 -ErrorAction SilentlyContinue
+    Log "  Active hours set." "Lime"
+    Flavor "No more surprise reboots mid-presentation. You're welcome."
+
+    Log "Disabling Windows Spotlight & Tips..." "Cyan"
+    $capPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+    Set-ItemProperty -Path $capPath -Name "SoftLandingEnabled" -Value 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $capPath -Name "SubscribedContent-338389Enabled" -Value 0 -ErrorAction SilentlyContinue
+    Log "  Spotlight/tips disabled." "Lime"
+    Flavor "Windows has been told to stop giving unsolicited advice. A rare victory for everyone."
+
+    Log "Applying Explorer tweaks..." "Cyan"
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "HideFileExt" 0 -ErrorAction SilentlyContinue
     Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "AutoCheckSelect" 0 -ErrorAction SilentlyContinue
-    Write-ToUI "  File extensions visible, checkboxes disabled." "Lime"
+    Log "  File extensions visible, checkboxes disabled." "Lime"
+    Flavor "You can finally tell a .exe from a .pdf again. Novel concept."
 
-    # --- Hibernate ---
-    Write-ToUI "Disabling hibernation..." "Cyan"
-    powercfg.exe /hibernate off 2>&1|Out-Null
-    Write-ToUI "  Hibernation disabled." "Lime"
+    Log "Setting timezone to New Zealand Standard Time..." "Cyan"
+    try {
+        Set-TimeZone -Id "New Zealand Standard Time" -ErrorAction Stop
+        Log "  Timezone set." "Lime"
+        Flavor "At least the clock knows what it's doing now."
+    } catch {
+        Log "  Timezone change failed — set manually." "Orange"
+        Flavor "The clock remains confused. Someone will need to sort that by hand."
+    }
 
-    # --- Timezone ---
-    Write-ToUI "Setting timezone to NZ..." "Cyan"
-    try { Set-TimeZone -Id "New Zealand Standard Time" -ErrorAction Stop; Write-ToUI "  Timezone set." "Lime" }
-    catch { Write-ToUI "  Timezone change failed — set manually." "Orange" }
-
-    # --- Right-click menu ---
-    Write-ToUI "Restoring Windows 10 right-click menu..." "Cyan"
-    $rc="HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
+    Log "Restoring Windows 10 right-click menu..." "Cyan"
+    $rc = "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
     if(-not(Test-Path $rc)){New-Item -Path $rc -Force|Out-Null}
     Set-ItemProperty $rc "(default)" "" -ErrorAction SilentlyContinue
-    Write-ToUI "  Right-click menu restored." "Lime"
+    Log "  Right-click menu restored." "Lime"
+    Flavor "Welcome back, old friend. No more 'Show more options' theatre."
 
-    # --- Run key cleanup (startup programs) ---
-    Write-ToUI "Clearing startup Run keys..." "Cyan"
+    Log "Clearing startup Run keys..." "Cyan"
     @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
       "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run") | ForEach-Object {
-        $p=$_
+        $p = $_
         (Get-ItemProperty -Path $p -ErrorAction SilentlyContinue).PSObject.Properties |
             Where-Object {$_.Name -notlike "PS*"} | ForEach-Object {
-                Write-ToUI "  Removing: $($_.Name)" "Orange"
+                Log "  Removing run key: $($_.Name)" "Orange"
                 Remove-ItemProperty -Path $p -Name $_.Name -ErrorAction SilentlyContinue
             }
     }
-    Write-ToUI "  Run keys cleared." "Lime"
+    Log "  Run keys cleared." "Lime"
+    Flavor "Fewer things racing each other to load first at boot."
 
-    # --- Scheduled task autostart disable ---
-    # Direct registry edit — no Task Scheduler service calls, no freezing
-    Write-ToUI "Disabling autostart scheduled tasks via registry..." "Cyan"
-    $taskRegBase = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree"
-    $tasksToDisable = @(
-        "MicrosoftEdgeUpdateTaskMachineCore",
-        "MicrosoftEdgeUpdateTaskMachineUA",
-        "MicrosoftEdgeShadowStackRollbackTask",
-        "StartupAppTask",
-        "Microsoft Compatibility Appraiser",
-        "FamilySafetyMonitor",
-        "FamilySafetyRefreshTask",
-        "MapsToastTask",
-        "MapsUpdateTask"
-    )
-    foreach($taskName in $tasksToDisable){
-        # Search recursively for the task key — tasks can be in subfolders
-        $taskKey = Get-ChildItem -Path $taskRegBase -Recurse -ErrorAction SilentlyContinue |
-                   Where-Object { $_.PSChildName -eq $taskName } |
-                   Select-Object -First 1
-        if($taskKey){
-            # SD value controls enabled state — setting bit disables it
-            # Simpler: just remove the run-on-boot trigger via the Id subkey
-            Set-ItemProperty -Path $taskKey.PSPath -Name "Index" -Value 0 -ErrorAction SilentlyContinue
-            Write-ToUI "  Disabled: $taskName" "Orange"
+    Log "Blocking common autostart apps (Edge/OneDrive/Teams/Copilot)..." "Cyan"
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Microsoft Edge" -ErrorAction SilentlyContinue
+
+    $odPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"
+    if(-not(Test-Path $odPolicy)){New-Item -Path $odPolicy -Force|Out-Null}
+    Set-ItemProperty $odPolicy "DisableFileSyncNGSC" 1 -ErrorAction SilentlyContinue
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDrive" -ErrorAction SilentlyContinue
+
+    Log "Redirecting user folders away from OneDrive..." "Cyan"
+    $folders = @("Desktop", "Personal", "My Pictures", "My Video", "My Music")
+    $shellFolders = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+    foreach ($f in $folders) {
+        $current = (Get-ItemProperty $shellFolders -ErrorAction SilentlyContinue).$f
+        if ($current -match "OneDrive") {
+            $newPath = $current -replace "OneDrive\\", ""
+            Set-ItemProperty -Path $shellFolders -Name $f -Value $newPath -ErrorAction SilentlyContinue
         }
-        # Not found = not installed, silently skip
     }
-    Write-ToUI "  Autostart tasks processed." "Lime"
+    $office = "HKCU:\Software\Microsoft\Office\Common\General"
+    if(!(Test-Path $office)) { New-Item $office -Force | Out-Null }
+    Set-ItemProperty -Path $office -Name "PreferCloudSaveLocations" -Value 0 -ErrorAction SilentlyContinue
+    Log "  OneDrive redirection complete, default save locations restored to local disk." "Lime"
+    Flavor "OneDrive's grip on your files has been loosened, finger by finger."
 
-    # --- Restart Explorer to apply visual changes ---
-    Write-ToUI "Restarting Explorer..." "Cyan"
+    $teamsPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftTeams"
+    if(-not(Test-Path $teamsPolicy)){New-Item -Path $teamsPolicy -Force|Out-Null}
+    Set-ItemProperty $teamsPolicy "DisableAutoStart" 1 -ErrorAction SilentlyContinue
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Teams" -ErrorAction SilentlyContinue
+    Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "com.squirrel.Teams.Teams" -ErrorAction SilentlyContinue
+    Flavor "Teams no longer gets to sprint to the front of the boot queue uninvited."
+
+    $copU = "HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot"
+    $copM = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot"
+    foreach($p in @($copU,$copM)){
+        if(-not(Test-Path $p)){New-Item -Path $p -Force|Out-Null}
+        Set-ItemProperty $p "TurnOffWindowsCopilot" 1 -ErrorAction SilentlyContinue
+    }
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" "ShowCopilotButton" 0 -ErrorAction SilentlyContinue
+    Log "  Edge/OneDrive/Teams/Copilot autostart blocked." "Lime"
+    Flavor "Copilot has been benched. Nobody asked it anything anyway."
+
+    Log "Disabling Edge Local AI Foundational Models..." "Cyan"
+    $edgePolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+    if(!(Test-Path $edgePolicy)) { New-Item $edgePolicy -Force | Out-Null }
+    Set-ItemProperty -Path $edgePolicy -Name "GenAILocalFoundationalModelSettings" -Value 1 -ErrorAction SilentlyContinue
+    Log "  Local AI models disabled for Edge." "Lime"
+    Flavor "This machine is not volunteering its idle cycles to run a browser's side project."
+
+    Log "Essential tweaks complete." "Lime"
+
+    # ============================================================
+    # STEP 3 — PRIVACY TWEAKS
+    # ============================================================
+    Section "STEP 3 - PRIVACY TWEAKS"
+
+    Log "Turning off recommendations and offers..." "Cyan"
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SoftLandingEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338389Enabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353694Enabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-353696Enabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SystemPaneSuggestionsEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "PreInstalledAppsEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "OemPreInstalledAppsEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SilentInstalledAppsEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" "SubscribedContent-338388Enabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement" "ScoobeSystemSettingEnabled" 0 -ErrorAction SilentlyContinue
+    $privSuggest = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Privacy"
+    if(-not(Test-Path $privSuggest)){New-Item -Path $privSuggest -Force|Out-Null}
+    Set-ItemProperty $privSuggest "TailoredExperiencesWithDiagnosticDataEnabled" 0 -ErrorAction SilentlyContinue
+    Log "  Recommendations and offers disabled." "Lime"
+    Flavor "Windows stops trying to sell you things. It was never very good at it."
+
+    Log "Turning off custom inking and typing dictionary..." "Cyan"
+    $inkPath = "HKCU:\Software\Microsoft\InputPersonalization"
+    if(-not(Test-Path $inkPath)){New-Item -Path $inkPath -Force|Out-Null}
+    Set-ItemProperty $inkPath "RestrictImplicitInkCollection" 1 -ErrorAction SilentlyContinue
+    Set-ItemProperty $inkPath "RestrictImplicitTextCollection" 1 -ErrorAction SilentlyContinue
+    $inkGen = "HKCU:\Software\Microsoft\InputPersonalization\TrainedDataStore"
+    if(-not(Test-Path $inkGen)){New-Item -Path $inkGen -Force|Out-Null}
+    Set-ItemProperty $inkGen "HarvestContacts" 0 -ErrorAction SilentlyContinue
+    $inkPersonal = "HKCU:\Software\Microsoft\Personalization\Settings"
+    if(-not(Test-Path $inkPersonal)){New-Item -Path $inkPersonal -Force|Out-Null}
+    Set-ItemProperty $inkPersonal "AcceptedPrivacyPolicy" 0 -ErrorAction SilentlyContinue
+    Log "  Inking and typing dictionary disabled." "Lime"
+    Flavor "Windows stops studying your handwriting like it's building a dossier."
+
+    Log "Turning off app diagnostics access..." "Cyan"
+    $appDiag = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\appDiagnostics"
+    if(-not(Test-Path $appDiag)){New-Item -Path $appDiag -Force|Out-Null}
+    Set-ItemProperty $appDiag "Value" "Deny" -ErrorAction SilentlyContinue
+    $appDiagPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy"
+    if(-not(Test-Path $appDiagPol)){New-Item -Path $appDiagPol -Force|Out-Null}
+    Set-ItemProperty $appDiagPol "LetAppsGetDiagnosticInfo" 2 -ErrorAction SilentlyContinue
+    Set-ItemProperty $appDiagPol "LetAppsGetDiagnosticInfo_UserInControlOfTheseApps" "" -ErrorAction SilentlyContinue
+    Log "  App diagnostics access denied." "Lime"
+    Flavor "Apps no longer get to compare notes on each other behind your back."
+
+    Log "Turning off search history..." "Cyan"
+    $searchSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings"
+    if(-not(Test-Path $searchSettings)){New-Item -Path $searchSettings -Force|Out-Null}
+    Set-ItemProperty $searchSettings "IsDeviceSearchHistoryEnabled" 0 -ErrorAction SilentlyContinue
+    $histPath = "$env:LOCALAPPDATA\Microsoft\Windows\ConnectedSearch\Search.history"
+    if(Test-Path $histPath){ Remove-Item $histPath -Force -ErrorAction SilentlyContinue }
+    Log "  Search history disabled and cleared." "Lime"
+    Flavor "A clean slate. What you searched for last Tuesday is between you and nobody."
+
+    Log "Turning off 'Search my accounts'..." "Cyan"
+    Set-ItemProperty $searchSettings "IsAADCloudSearchEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchSettings "IsMSACloudSearchEnabled" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $searchSettings "IsWorkplaceSearchEnabled" 0 -ErrorAction SilentlyContinue
+    if(-not(Test-Path $machinePol)){New-Item -Path $machinePol -Force|Out-Null}
+    Set-ItemProperty $machinePol "ConnectedSearchUseWeb" 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty $machinePol "AllowCloudSearch" 0 -ErrorAction SilentlyContinue
+    Log "  Account search disabled." "Lime"
+    Flavor "Local search means local. The cloud doesn't need to be involved in this one."
+
+    Log "Privacy tweaks complete." "Lime"
+
+    # ============================================================
+    # RESTART EXPLORER
+    # ============================================================
+    Log "Restarting Explorer to apply visual changes..." "Cyan"
     Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
     Start-Process "explorer.exe"
-    Write-ToUI "  Explorer restarted." "Lime"
+    Log "  Explorer restarted." "Lime"
+    Flavor "Should feel a bit lighter on its feet now."
 
-    Write-ToUI "=== ESSENTIAL TWEAKS COMPLETE ===" "Lime"
+    Write-ToUI " "
+    Write-ToUI "=== SYSTEM SANITIZE COMPLETE ===" "Lime"
+    Write-ToUI "Windows has been humbled. Carry on." "Cyan"
 }
+
 
 function Run-Installs($AppList,$DoChrome,$DoVLC) {
 
@@ -1527,7 +1697,7 @@ function Show-AppPicker($RunAfter){
 $b1.Add_Click({
     [System.Media.SystemSounds]::Asterisk.Play()
     $b1.Enabled=$false; $b1.Text="  Working..."
-    Run-Debloat; Run-EssentialTweaks
+    Run-SystemSanitize
     $b1.Text="  SYSTEM SANITIZE — Debloat + Essential Tweaks"; $b1.Enabled=$true
 })
 
@@ -1899,7 +2069,7 @@ $bAll.Add_Click({
     Run-VendorPurge
 
     Write-ToUI "=== STEP 5: SYSTEM SANITIZE ===" "Yellow"
-    Run-Debloat; Run-EssentialTweaks
+    Run-SystemSanitize
 
     Write-ToUI "=== STEP 6: APP INSTALL ===" "Yellow"
     Show-AppPicker{
