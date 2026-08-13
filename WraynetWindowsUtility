@@ -1598,10 +1598,10 @@ function Show-AppPicker($RunAfter){
     AP-Check "Google Drive"                "Google.GoogleDrive"              $true
     AP-Check "VLC Media Player"            "VideoLAN.VLC"                    $true
     AP-Check "7-Zip"                       "7zip.7zip"                       $true
-    AP-Check "Adobe Acrobat Reader"        "Adobe.Acrobat.Reader.64-bit"     $true
 
     $script:ay+=6
     AP-Section "OPTIONAL  (unticked by default)"
+    AP-Check "Adobe Acrobat Reader"        "Adobe.Acrobat.Reader.64-bit"     $false
     AP-Check "LocalSend"                   "LocalSend.LocalSend"             $false
     AP-Check "CrystalDiskInfo"             "CrystalDewWorld.CrystalDiskInfo" $false
     AP-Check "Angry IP Scanner"            "Angryziber.AngryIPScanner"       $false
