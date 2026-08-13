@@ -244,7 +244,7 @@ $lblWindows.Add_Click({
     # ===========================================================
     # DEFAULT KEY — change this line when the key changes
     # ===========================================================
-    $t.Text = "H3T4N-27DJJ-D2PMR-HY8BG-MKMM3"
+    $t.Text = "XXP4N-WWM4C-TYHT7-YB2RC-W2QF4"
     # ===========================================================
     $t.SelectAll()
     $ok = New-SubBtn $F "Activate Windows" 15 96 210 34 $btnTeal
