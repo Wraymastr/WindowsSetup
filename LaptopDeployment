@@ -318,7 +318,6 @@ function Step-InstallApps {
         "Google.GoogleDrive",
         "VideoLAN.VLC",
         "7zip.7zip",
-        "Adobe.Acrobat.Reader.64-bit"
     )
 
     Write-Log "Configuring winget..." "Cyan"
