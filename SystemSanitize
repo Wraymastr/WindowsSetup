@@ -617,9 +617,9 @@ $bannerLines = @(
     "  ║      Vibed by Kyran Wray             ║",
     "  ╚══════════════════════════════════════╝",
     " ",
-    "  CHANGELOG  —  v2.0  —  $(Get-Date -Format 'dd MMM yyyy')",
+    "  CHANGELOG  —  v2.1  —  $(Get-Date -Format 'dd MMM yyyy')",
     "  ─────────────────────────────────────────────────────",
-    "  + Auto vendor detection (HP/Dell/Lenovo/Acer/ASUS)",
+    "  + Inventory-driven OEM purge (Appx/MSI/Win32)",
     "  + Domain Tools: GP report, gpupdate, DNS, Azure AD",
     "  + Network Manager: static IP, DHCP, adapter switcher",
     "  + Total Deploy: full guided setup sequence",
@@ -1112,69 +1112,385 @@ function Run-Installs($AppList,$DoChrome,$DoVLC) {
 } 
 
 function Run-VendorPurge {
-    $manufacturer=(Get-CimInstance Win32_ComputerSystem).Manufacturer
-    Write-ToUI "Detected manufacturer: $manufacturer" "Cyan"
-    $vendor="Unknown"
-    if($manufacturer -match "HP|Hewlett"){$vendor="HP"}
-    elseif($manufacturer -match "Dell")    {$vendor="Dell"}
-    elseif($manufacturer -match "Lenovo")  {$vendor="Lenovo"}
-    elseif($manufacturer -match "Acer")    {$vendor="Acer"}
-    elseif($manufacturer -match "ASUS")    {$vendor="ASUS"}
-    elseif($manufacturer -match "MSI")     {$vendor="MSI"}
-    elseif($manufacturer -match "Toshiba") {$vendor="Toshiba"}
-    elseif($manufacturer -match "Samsung") {$vendor="Samsung"}
-    elseif($manufacturer -match "Microsoft"){$vendor="Microsoft"}
-    if($vendor -eq "Unknown"){Write-ToUI "Unknown vendor — skipping." "Orange"; return}
+    param([switch]$NoPrompt)
 
-    Write-ToUI "Running $vendor bloatware removal..." "Yellow"
-    $vendorBloat=@{
-        "HP"      =@("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart","HP.HPAudioCenter","HP.HPSystemEventUtility","HP.HPEnhance","HP.HPPCHardwareDiagnosticsWindows")
-        "Dell"    =@("Dell.DellSupportAssistforPCs","Dell.DellOptimizer","Dell.DellDigitalDelivery","Dell.DellUpdate","Dell.DellCommandUpdate","Dell.DellPowerManager","Dell.DellCinemaGuide","Dell.DellMobileConnect","Dell.DellCinema")
-        "Lenovo"  =@("E046963F.LenovoCompanion","E046963F.LenovoSettings","E0469640.LenovoUtility","LenovoCorporation.LenovoSettings","LenovoCorporation.LenovoID","LenovoCorporation.LenovoCompanion")
-        "Acer"    =@("AcerIncorporated.AcerRegistration","AcerIncorporated.QuickAccess","AcerIncorporated.AcerCollection","AcerIncorporated.AcerCareCenterS","AcerIncorporated.AcerJumpStart")
-        "ASUS"    =@("ASUSTeKCOMPUTERINC.MyASUS","ASUSTeKCOMPUTERINC.ASUSProductRegistrationProgram","ASUSTeKCOMPUTERINC.ASUSWelcome","ASUSTeKCOMPUTERINC.ASUSLiveUpdate")
-        "MSI"     =@("MSI.CenterFacade","MSI.DragonCenter","MSI.MSICenter","MSI.MSICenterSDK")
-        "Toshiba" =@("ToshibaCorporation.ToshibaServiceStation","ToshibaCorporation.SettingsforYourTOSHIBA")
-        "Samsung" =@("HONHAIPREC.Samsung_Update","HONHAIPREC.SamsungUpdate")
-        "Microsoft"=@("Microsoft.SurfaceHub","Microsoft.PPIProjection")
+    # OEM software is installed through a mixture of Appx/MSIX, MSI and EXE
+    # installers.  Inventory the names actually present instead of assuming that
+    # a WinGet ID is also an Appx package name.
+    function VP-Log($Message, $Colour="Lime") {
+        Write-ToUI $Message $Colour
     }
-    $vendorWinget=@{
-        "HP"      =@("HP.HPSupportAssistant","HP.HPQuickDrop","HP.HPPrivacySettings","HP.HPConnectionOptimizer","HP.HPSmart")
-        "Dell"    =@("Dell.CommandUpdate","Dell.DellOptimizer","Dell.DellSupportAssist","Dell.DellDigitalDelivery","Dell.DellPowerManager")
-        "Lenovo"  =@("Lenovo.SystemUpdate","Lenovo.VantageService","Lenovo.SmartAppearance")
-        "Acer"    =@("Acer.AcerCollection","Acer.QuickAccess")
-        "ASUS"=@();"MSI"=@();"Toshiba"=@();"Samsung"=@();"Microsoft"=@()
+
+    function Get-VPInstalledPrograms {
+        $paths = @(
+            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+        )
+
+        # Also inspect any other user hives that are currently loaded.
+        Get-ChildItem "Registry::HKEY_USERS" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.PSChildName -match '^S-1-5-21-' -and
+                $_.PSChildName -notmatch '\.Classes$'
+            } | ForEach-Object {
+                $paths += "Registry::HKEY_USERS\$($_.PSChildName)\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            }
+
+        $items = foreach($path in ($paths | Select-Object -Unique)) {
+            Get-ItemProperty -Path $path -ErrorAction SilentlyContinue |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace([string]$_.DisplayName) -and
+                    [string]::IsNullOrWhiteSpace([string]$_.ParentKeyName)
+                }
+        }
+
+        @($items | Sort-Object -Property PSPath -Unique)
     }
-    foreach($app in $vendorBloat[$vendor]){
-        Write-ToUI "Checking AppX: $app"
-        Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue|ForEach-Object{
-            Write-ToUI "  Removing: $($_.Name)" "Orange"
-            Remove-AppxPackage -Package $_.PackageFullName -AllUsers -ErrorAction SilentlyContinue}
-        Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue|
-            Where-Object{$_.DisplayName -like $app}|ForEach-Object{
-                Write-ToUI "  Removing provisioned: $($_.DisplayName)" "Orange"
-                Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue}
-    }
-    if($vendorWinget[$vendor].Count -gt 0){
-        foreach($app in $vendorWinget[$vendor]){
-            Write-ToUI "Uninstalling via Winget: $app"
-            winget uninstall --id $app -e --accept-source-agreements -h --force 2>&1|Out-Null}
-    }
-    # WMI nuclear options for stubborn installs
-    $wmiQueries=@{
-        "HP"     =@("*HP Wolf*","*HP Sure Sense*")
-        "Lenovo" =@("*Lenovo Vantage*")
-        "Dell"   =@("*Dell Support*")
-    }
-    if($wmiQueries.ContainsKey($vendor)){
-        foreach($pattern in $wmiQueries[$vendor]){
-            Get-CimInstance Win32_Product -ErrorAction SilentlyContinue|
-                Where-Object{$_.Name -like $pattern}|ForEach-Object{
-                    Write-ToUI "  Force removing: $($_.Name)" "Orange"
-                    Invoke-CimMethod -InputObject $_ -MethodName "Uninstall"|Out-Null}
+
+    function Invoke-VPCommandLine {
+        param([string]$CommandLine)
+
+        if([string]::IsNullOrWhiteSpace($CommandLine)) {
+            return [pscustomobject]@{ Success=$false; ExitCode=$null; Detail="No uninstall command" }
+        }
+
+        $expanded = [Environment]::ExpandEnvironmentVariables($CommandLine.Trim())
+        $filePath = $null
+        $arguments = ""
+
+        if($expanded -match '^\s*"([^"]+\.exe)"\s*(.*)$') {
+            $filePath = $Matches[1]
+            $arguments = $Matches[2]
+        } elseif($expanded -match '^\s*(.+?\.exe)\s+(.*)$') {
+            $filePath = $Matches[1].Trim('"')
+            $arguments = $Matches[2]
+        } elseif($expanded -match '^\s*(.+?\.exe)\s*$') {
+            $filePath = $Matches[1].Trim('"')
+        } else {
+            return [pscustomobject]@{ Success=$false; ExitCode=$null; Detail="Could not parse uninstall command" }
+        }
+
+        try {
+            $startArgs = @{
+                FilePath    = $filePath
+                Wait        = $true
+                PassThru    = $true
+                ErrorAction = "Stop"
+            }
+            if(-not [string]::IsNullOrWhiteSpace($arguments)) {
+                $startArgs.ArgumentList = $arguments
+            }
+            $process = Start-Process @startArgs
+            $okCodes = @(0,1605,1614,1641,3010)
+            return [pscustomobject]@{
+                Success  = ($process.ExitCode -in $okCodes)
+                ExitCode = $process.ExitCode
+                Detail   = "Exit code $($process.ExitCode)"
+            }
+        } catch {
+            return [pscustomobject]@{ Success=$false; ExitCode=$null; Detail=$_.Exception.Message }
         }
     }
-    Write-ToUI "$vendor purge complete!" "Lime"
+
+    function Invoke-VPWingetUninstall {
+        param([string]$DisplayName)
+
+        $winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
+        if(-not $winget) {
+            return [pscustomobject]@{ Success=$false; ExitCode=$null; Detail="WinGet is unavailable" }
+        }
+
+        try {
+            # The registry DisplayName is used because it is the exact installed
+            # name. This avoids relying on stale or guessed WinGet package IDs.
+            $wingetPath = $winget.Source
+            $wingetOutput = @(& $wingetPath uninstall --name $DisplayName --exact --silent --force --disable-interactivity --accept-source-agreements 2>&1)
+            $exitCode = $LASTEXITCODE
+            $detail = (($wingetOutput | Select-Object -Last 4) -join " | ").Trim()
+            if([string]::IsNullOrWhiteSpace($detail)) { $detail = "WinGet exit code $exitCode" }
+            return [pscustomobject]@{ Success=($exitCode -eq 0); ExitCode=$exitCode; Detail=$detail }
+        } catch {
+            return [pscustomobject]@{ Success=$false; ExitCode=$null; Detail=$_.Exception.Message }
+        }
+    }
+
+    function Invoke-VPProgramUninstall {
+        param($Program)
+
+        $displayName = [string]$Program.DisplayName
+        $uninstallString = [string]$Program.UninstallString
+        $productCode = $null
+
+        if(([string]$Program.PSChildName) -match '^\{[0-9A-Fa-f-]{36}\}$') {
+            $productCode = [string]$Program.PSChildName
+        } elseif($uninstallString -match '\{[0-9A-Fa-f-]{36}\}') {
+            $productCode = $Matches[0]
+        }
+
+        $isMsi = ([int]$Program.WindowsInstaller -eq 1) -or
+                 ($uninstallString -match '(?i)msiexec(\.exe)?')
+
+        if($isMsi -and $productCode) {
+            VP-Log "  MSI uninstall: $displayName" "Orange"
+            try {
+                $process = Start-Process "msiexec.exe" -ArgumentList "/x $productCode /qn /norestart" -Wait -PassThru -ErrorAction Stop
+                $okCodes = @(0,1605,1614,1641,3010)
+                return [pscustomobject]@{
+                    Success  = ($process.ExitCode -in $okCodes)
+                    ExitCode = $process.ExitCode
+                    Detail   = "MSI exit code $($process.ExitCode)"
+                }
+            } catch {
+                return [pscustomobject]@{ Success=$false; ExitCode=$null; Detail=$_.Exception.Message }
+            }
+        }
+
+        if(-not [string]::IsNullOrWhiteSpace([string]$Program.QuietUninstallString)) {
+            VP-Log "  Quiet uninstall: $displayName" "Orange"
+            $quietResult = Invoke-VPCommandLine -CommandLine ([string]$Program.QuietUninstallString)
+            if($quietResult.Success) { return $quietResult }
+            VP-Log "    Quiet command failed; trying WinGet." "Gray"
+        }
+
+        VP-Log "  WinGet uninstall by installed name: $displayName" "Orange"
+        $wingetResult = Invoke-VPWingetUninstall -DisplayName $displayName
+        if($wingetResult.Success) { return $wingetResult }
+
+        # Inno Setup publishes a predictable executable and silent switches.
+        # Unknown EXE uninstallers are deliberately not given guessed switches.
+        if($uninstallString -match '(?i)unins\d*\.exe') {
+            VP-Log "    Trying Inno Setup silent uninstall." "Gray"
+            $innoResult = Invoke-VPCommandLine -CommandLine ($uninstallString + ' /VERYSILENT /SUPPRESSMSGBOXES /NORESTART')
+            if($innoResult.Success) { return $innoResult }
+            return $innoResult
+        }
+
+        return [pscustomobject]@{
+            Success  = $false
+            ExitCode = $wingetResult.ExitCode
+            Detail   = $wingetResult.Detail
+        }
+    }
+
+    $profiles = [ordered]@{
+        "HP" = [pscustomobject]@{
+            Detect    = '(?i)(\bHP\b|Hewlett[- ]Packard)'
+            Publisher = '(?i)(\bHP\b|HP Inc|Hewlett[- ]Packard)'
+            Appx      = '(?i)(HPSupportAssistant|HPQuickDrop|HPPrivacySettings|HPConnectionOptimizer|HPSmart|myHP|HPJumpStarts|HPWorkWell|HPOrbit|HPRegistration|HPWelcome|HPPCHardwareDiagnosticsWindows|HPPowerManager|HPSystemInformation|HPEasyClean|HPEnhance|EnergyStar|WolfSecurity)'
+            Win32     = '(?i)(HP Support Assistant|HP Support Solutions Framework|HP Connection Optimizer|HP Documentation|HP Notifications|HP JumpStart|HP Registration|HP Welcome|HP WorkWell|HP QuickDrop|HP Privacy Settings|HP Sure (Click|Sense|Run)|HP Wolf Security|HP Client Security|HP Touchpoint Analytics|HP Insights|HP One Agent|myHP|Energy Star)'
+        }
+        "Dell" = [pscustomobject]@{
+            Detect    = '(?i)\bDell\b'
+            Publisher = '(?i)\bDell\b'
+            Appx      = '(?i)(DellSupportAssist|DellOptimizer|DellDigitalDelivery|DellUpdate|DellCommandUpdate|DellPowerManager|DellCinema|DellMobileConnect|DellCustomerConnect|MyDell|DellPair|DellPeripheralManager)'
+            Win32     = '(?i)(Dell SupportAssist|SupportAssist (OS Recovery|Remediation)|Dell Digital Delivery|Dell Optimizer|Dell Customer Connect|Dell Mobile Connect|Dell Cinema|Dell Pair|Dell Peripheral Manager|MyDell|Dell Data Vault|Dell Core Services|Dell Command[^\r\n]*(Update|Power Manager))'
+        }
+        "Lenovo" = [pscustomobject]@{
+            Detect    = '(?i)\bLenovo\b'
+            Publisher = '(?i)\bLenovo\b'
+            Appx      = '(?i)(LenovoCompanion|LenovoSettings|LenovoID|LenovoVantage|LenovoNow|LenovoWelcome|LenovoAppExplorer|LenovoSmartAppearance)'
+            Win32     = '(?i)(Lenovo Vantage|Lenovo Companion|Lenovo App Explorer|Lenovo Welcome|Lenovo Now|Lenovo ID|Lenovo Smart Appearance|Lenovo System Update|Lenovo Service Bridge)'
+        }
+        "Acer" = [pscustomobject]@{
+            Detect    = '(?i)\bAcer\b'
+            Publisher = '(?i)\bAcer\b'
+            Appx      = '(?i)(AcerRegistration|AcerCollection|AcerCareCenter|AcerJumpStart|AcerProductRegistration)'
+            Win32     = '(?i)(Acer Registration|Acer Collection|Acer Care Center|Acer Jumpstart|Acer Product Registration|Acer Portal|abFiles|abPhoto|abDocs|CyberLink[^\r\n]*for Acer)'
+        }
+        "ASUS" = [pscustomobject]@{
+            Detect    = '(?i)(ASUSTeK|\bASUS\b)'
+            Publisher = '(?i)(ASUSTeK|\bASUS\b)'
+            Appx      = '(?i)(MyASUS|ASUSProductRegistration|ASUSWelcome|ASUSGiftbox|ASUSLiveUpdate|ArmouryCrate|AuraCreator)'
+            Win32     = '(?i)(MyASUS|ASUS Product Registration|ASUS Welcome|ASUS Giftbox|ASUS Live Update|Armoury Crate|Aura Creator|ROG Live Service)'
+        }
+        "MSI" = [pscustomobject]@{
+            Detect    = '(?i)(Micro-Star|\bMSI\b)'
+            Publisher = '(?i)(Micro-Star|\bMSI\b)'
+            Appx      = '(?i)(MSICenter|DragonCenter|CenterFacade|MSIAppPlayer|MSICompanion)'
+            Win32     = '(?i)(MSI Center|Dragon Center|MSI App Player|MSI Companion|MSI SDK|MSI NBFoundation Service)'
+        }
+        "Toshiba" = [pscustomobject]@{
+            Detect    = '(?i)(Toshiba|Dynabook)'
+            Publisher = '(?i)(Toshiba|Dynabook)'
+            Appx      = '(?i)(ToshibaServiceStation|ToshibaRegistration|DynabookServiceStation)'
+            Win32     = '(?i)(TOSHIBA Service Station|TOSHIBA Registration|dynabook Service Station|TOSHIBA Start)'
+        }
+        "Samsung" = [pscustomobject]@{
+            Detect    = '(?i)\bSamsung\b'
+            Publisher = '(?i)\bSamsung\b'
+            Appx      = '(?i)(SamsungStudio|SamsungNotes|SamsungFlow|SamsungGallery|SamsungWelcome|GalaxyBookExperience)'
+            Win32     = '(?i)(Samsung Studio|Samsung Notes|Samsung Flow|Samsung Gallery|Samsung Welcome|Galaxy Book Experience)'
+        }
+    }
+
+    # Do not automatically remove device support, hotkey or driver components.
+    # Some of these have an OEM name but are not ordinary bloatware.
+    $protectedPattern = '(?i)(driver|firmware|chipset|BIOS|UEFI|Bluetooth|Wireless|WLAN|Ethernet|Touchpad|TrackPoint|Card Reader|Graphics|Display Audio|Audio (Control|Driver)|Thunderbolt|Serial IO|Management Engine|System Interface Foundation|System Control Interface|Hotkey|System Event Utility|SystemEventUtility|Power Management Driver|Quick Access)'
+
+    $manufacturerParts = @()
+    foreach($className in @("Win32_ComputerSystem","Win32_BaseBoard","Win32_BIOS")) {
+        try {
+            $manufacturerParts += (Get-CimInstance $className -ErrorAction Stop).Manufacturer
+        } catch {}
+    }
+    $manufacturer = (($manufacturerParts | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_)
+    } | Select-Object -Unique) -join " / ")
+    VP-Log "Detected manufacturer data: $manufacturer" "Cyan"
+
+    $vendor = $null
+    $profile = $null
+    foreach($entry in $profiles.GetEnumerator()) {
+        if($manufacturer -match $entry.Value.Detect) {
+            $vendor = $entry.Key
+            $profile = $entry.Value
+            break
+        }
+    }
+    if(-not $vendor) {
+        VP-Log "No supported OEM profile matched — vendor purge skipped." "Orange"
+        return
+    }
+
+    VP-Log "Inventorying $vendor software..." "Yellow"
+    $installedAppx = @(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue)
+    $provisionedAppx = @(Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue)
+    $installedPrograms = @(Get-VPInstalledPrograms)
+
+    $appxCandidates = @($installedAppx | Where-Object {
+        $identity = "$($_.Name) $($_.PackageFullName) $($_.PublisherDisplayName)"
+        $identity -match $profile.Appx -and $identity -notmatch $protectedPattern
+    } | Sort-Object -Property PackageFullName -Unique)
+
+    $provisionedCandidates = @($provisionedAppx | Where-Object {
+        $identity = "$($_.DisplayName) $($_.PackageName)"
+        $identity -match $profile.Appx -and $identity -notmatch $protectedPattern
+    } | Sort-Object -Property PackageName -Unique)
+
+    $programCandidates = @($installedPrograms | Where-Object {
+        $identity = "$($_.DisplayName) $($_.Publisher)"
+        $identity -match $profile.Win32 -and $identity -notmatch $protectedPattern
+    } | Group-Object -Property {
+        "$($_.PSChildName)|$($_.DisplayName)|$($_.UninstallString)"
+    } | ForEach-Object { $_.Group[0] })
+
+    VP-Log "Inventory: $($installedAppx.Count) Appx, $($provisionedAppx.Count) provisioned, $($installedPrograms.Count) Win32 entries." "Gray"
+
+    $preview = @()
+    $preview += @($appxCandidates | ForEach-Object { "Appx: $($_.Name)" })
+    $preview += @($provisionedCandidates | ForEach-Object { "Provisioned: $($_.DisplayName)" })
+    $preview += @($programCandidates | ForEach-Object { "Program: $($_.DisplayName)" })
+
+    if($preview.Count -eq 0) {
+        VP-Log "No matching $vendor bloatware was found." "Orange"
+        $vendorAppxInventory = @($installedAppx | Where-Object {
+            "$($_.Name) $($_.PublisherDisplayName)" -match $profile.Publisher
+        } | Select-Object -ExpandProperty Name -Unique | Sort-Object)
+        $vendorInventory = @($installedPrograms | Where-Object {
+            "$($_.DisplayName) $($_.Publisher)" -match $profile.Publisher
+        } | Select-Object -ExpandProperty DisplayName -Unique | Sort-Object)
+        if($vendorAppxInventory.Count -gt 0) {
+            VP-Log "Detected $vendor Appx packages not on the removal list:" "Cyan"
+            $vendorAppxInventory | Select-Object -First 15 | ForEach-Object {
+                VP-Log "  $_" "Gray"
+            }
+        }
+        if($vendorInventory.Count -gt 0) {
+            VP-Log "Detected $vendor programs not on the removal list:" "Cyan"
+            $vendorInventory | Select-Object -First 15 | ForEach-Object {
+                VP-Log "  $_" "Gray"
+            }
+        }
+        return
+    }
+
+    VP-Log "Matched $($preview.Count) removal entries:" "Cyan"
+    $preview | ForEach-Object { VP-Log "  $_" "Gray" }
+
+    if(-not $NoPrompt) {
+        $shown = @($preview | Select-Object -First 22)
+        $more = ""
+        if($preview.Count -gt $shown.Count) {
+            $more = "`n...and $($preview.Count - $shown.Count) more (see console)."
+        }
+        $message = "Detected $vendor hardware.`n`nThe following curated OEM bloat entries will be removed:`n`n" +
+                   ($shown -join "`n") + $more +
+                   "`n`nDrivers, firmware, hotkey and device-support components are protected.`nContinue?"
+        $answer = [Windows.Forms.MessageBox]::Show(
+            $message,
+            "$vendor Vendor Purge",
+            [Windows.Forms.MessageBoxButtons]::YesNo,
+            [Windows.Forms.MessageBoxIcon]::Warning,
+            [Windows.Forms.MessageBoxDefaultButton]::Button2
+        )
+        if($answer -ne [Windows.Forms.DialogResult]::Yes) {
+            VP-Log "Vendor purge cancelled — nothing removed." "Orange"
+            return
+        }
+    }
+
+    $stats = [pscustomobject]@{ Removed=0; Failed=0; Restart=$false }
+
+    foreach($package in $appxCandidates) {
+        VP-Log "Removing Appx for all users: $($package.Name)" "Orange"
+        try {
+            Remove-AppxPackage -Package $package.PackageFullName -AllUsers -ErrorAction Stop
+            $stats.Removed++
+        } catch {
+            $allUsersError = $_.Exception.Message
+            # AllUsers can fail when a package is registered in a stale/logged-off
+            # profile. Fall back to the SIDs that report it as installed.
+            VP-Log "  AllUsers failed; trying registered user SIDs." "Gray"
+            $userFailures = @()
+            $registeredUsers = @($package.PackageUserInformation | Where-Object {
+                [string]$_.InstallState -eq "Installed"
+            })
+            foreach($packageUser in $registeredUsers) {
+                try {
+                    Remove-AppxPackage -Package $package.PackageFullName -User $packageUser.UserSecurityId -ErrorAction Stop
+                } catch {
+                    $userFailures += $_.Exception.Message
+                }
+            }
+            if($registeredUsers.Count -gt 0 -and $userFailures.Count -eq 0) {
+                $stats.Removed++
+            } else {
+                $stats.Failed++
+                VP-Log "  FAILED: $allUsersError" "Red"
+            }
+        }
+    }
+
+    foreach($package in $provisionedCandidates) {
+        VP-Log "Deprovisioning for future users: $($package.DisplayName)" "Orange"
+        try {
+            Remove-AppxProvisionedPackage -Online -PackageName $package.PackageName -ErrorAction Stop | Out-Null
+            $stats.Removed++
+        } catch {
+            $stats.Failed++
+            VP-Log "  FAILED: $($_.Exception.Message)" "Red"
+        }
+    }
+
+    foreach($program in $programCandidates) {
+        $result = Invoke-VPProgramUninstall -Program $program
+        if($result.Success) {
+            $stats.Removed++
+            if($result.ExitCode -in @(1641,3010)) { $stats.Restart=$true }
+            VP-Log "  Removed: $($program.DisplayName)" "Lime"
+        } else {
+            $stats.Failed++
+            VP-Log "  FAILED: $($program.DisplayName) — $($result.Detail)" "Red"
+        }
+    }
+
+    $summaryColour = "Lime"
+    if($stats.Failed -gt 0) { $summaryColour = "Orange" }
+    VP-Log "$vendor purge finished: $($stats.Removed) removed, $($stats.Failed) failed." $summaryColour
+    if($stats.Restart) {
+        VP-Log "One or more uninstallers requested a restart." "Yellow"
+    }
 }
 
 function Set-ChromeDefault {
