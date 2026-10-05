@@ -1,0 +1,417 @@
+#requires -Version 5.1
+param([switch]$Preview)
+# WRAYNET Setup v2. Windows x64; Ethernet or working Wi-Fi needed for installs.
+# The password is recoverable from both the script and its packaged EXE.
+$ErrorActionPreference = 'Stop'
+$ssid = 'The Phantom Zone'
+$password = 'pigman03'
+$profileName = 'WRAYNET - Setup'
+# Optional: enter your Windows key here before building the EXE. Never auto-applied.
+$DefaultWindowsKey = ''
+$OfficeProductId = 'O365ProPlusRetail' # Use O365BusinessRetail for Business licensing.
+$OfficeLanguage = 'en-gb'
+# BUILD_ASSETS_START
+$script:assetRoot = Join-Path $PSScriptRoot 'Assets'
+function Get-Asset([string]$Name) { return ,[IO.File]::ReadAllBytes((Join-Path $script:assetRoot $Name)) }
+# BUILD_ASSETS_END
+
+# Elevate the source script; PS2EXE uses -requireAdmin for the EXE.
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+if (!$Preview -and !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    try {
+        if (!$PSCommandPath) { throw 'Run this program as administrator.' }
+        $child = Start-Process powershell.exe -Verb RunAs -PassThru -Wait -ArgumentList ('-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -File "{0}"' -f $PSCommandPath)
+        exit $child.ExitCode
+    } catch {
+        Add-Type -AssemblyName System.Windows.Forms
+        [void][Windows.Forms.MessageBox]::Show($_.Exception.Message,'WRAYNET Setup')
+        exit 1
+    }
+}
+
+Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+[Windows.Forms.Application]::EnableVisualStyles()
+$script:baseLogs=Join-Path $env:LOCALAPPDATA 'WRAYNET\SetupLogs'
+$null=New-Item -ItemType Directory -Path $baseLogs -Force
+$script:lastRun=$baseLogs
+$script:installProcess=$null
+$script:activationProcess=$null
+$script:infoProcess=$null
+$script:domainState=$null
+$script:namePrefix='LT'
+$script:restartRequired=$false
+$script:logLines=0
+$script:selection=@('Google.Chrome','Google.GoogleDrive','Microsoft.Office','VideoLAN.VLC','Mozilla.Firefox')
+$script:catalog=@(
+    @{Id='Google.Chrome';Name='Chrome'},
+    @{Id='Google.GoogleDrive';Name='Google Drive'},
+    @{Id='Microsoft.Office';Name='Microsoft 365'},
+    @{Id='VideoLAN.VLC';Name='VLC'},
+    @{Id='Mozilla.Firefox';Name='Firefox'}
+)
+# Build every window at 96-DPI coordinates before enabling automatic scaling.
+# Otherwise the empty form can scale before its fixed-coordinate children exist.
+function Initialize-WindowLayout([Windows.Forms.Form]$Window) {
+    $Window.SuspendLayout()
+    $Window.AutoScaleMode='None'
+    $Window.Font=New-Object Drawing.Font('Segoe UI',9)
+}
+function Complete-WindowLayout([Windows.Forms.Form]$Window) {
+    $Window.AutoScaleDimensions=New-Object Drawing.SizeF(96,96)
+    $Window.AutoScaleMode='Dpi'
+    $Window.ResumeLayout($true)
+    $Window.PerformAutoScale()
+    $Window.PerformLayout()
+    # Shown runs after the final handle/DPI initialization. Normally no resize
+    # is needed. Small screens get a scrollable viewport, never smaller text.
+    $Window.Add_Shown({
+        param($sender,$eventArgs)
+        $area=[Windows.Forms.Screen]::FromControl($sender).WorkingArea
+        $maxWidth=[Math]::Max(1,($area.Width-24))
+        $maxHeight=[Math]::Max(1,($area.Height-24))
+        if($sender.Width -gt $maxWidth -or $sender.Height -gt $maxHeight) {
+            $contentSize=$sender.ClientSize
+            $sender.AutoScrollMinSize=$contentSize
+            $sender.AutoScroll=$true
+            $sender.Size=New-Object Drawing.Size([Math]::Min($sender.Width,$maxWidth),[Math]::Min($sender.Height,$maxHeight))
+            $sender.Location=New-Object Drawing.Point(($area.Left+[int](($area.Width-$sender.Width)/2)),($area.Top+[int](($area.Height-$sender.Height)/2)))
+        }
+    })
+}
+function Get-SuggestedName([string]$Serial,[string]$Prefix,[string]$Fallback) {
+    if(!$Serial -or $Serial.Trim() -match '^(Unavailable|Detecting\.\.\.|Unknown|Default string|To be filled by O\.?E\.?M\.?|System Serial Number|0+)$'){return $Fallback}
+    $clean=($Serial.ToUpperInvariant() -replace '[^A-Z0-9]','')
+    if(!$clean){return $Fallback}
+    if($Prefix -notin @('LT','DT')){$Prefix='LT'}
+    # Windows computer names are limited to 15 characters; keep the last 12 serial characters.
+    if($clean.Length -gt 12){$clean=$clean.Substring($clean.Length-12)}
+    return $Prefix+'-'+$clean
+}
+function New-RunFolder {
+    $dir=Join-Path $baseLogs ((Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,6))
+    $null=New-Item -ItemType Directory -Path $dir -Force
+    return $dir
+}
+function Start-PowerShell([string]$Path) {
+    $argsText='-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -File "'+$Path+'"'
+    return (Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $argsText -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path (Split-Path $Path) 'worker-output.log') -RedirectStandardError (Join-Path (Split-Path $Path) 'worker-errors.log'))
+}
+function Append-Terminal([string]$Text) {
+    $terminal.SelectionStart=$terminal.TextLength
+    $terminal.SelectionColor=if($Text -match '\[FAIL\]'){[Drawing.Color]::Salmon}elseif($Text -match '\[(WARN|WAIT|SKIP)\]'){[Drawing.Color]::Khaki}elseif($Text -match '\[(OK|DONE)\]'){[Drawing.Color]::LightGreen}else{[Drawing.Color]::Gainsboro}
+    $terminal.AppendText($Text+"`r`n")
+    $terminal.ScrollToCaret()
+}
+function Message([string]$Text) {[void][Windows.Forms.MessageBox]::Show($form,$Text,'WRAYNET Setup','OK','Information')}
+function Open-AppDefaults([string]$App) {
+    $pattern=if($App -eq 'Chrome'){'Google Chrome'}else{'VLC'}
+    $uri='ms-settings:defaultapps'
+    foreach($path in @('HKLM:\SOFTWARE\RegisteredApplications','HKLM:\SOFTWARE\WOW6432Node\RegisteredApplications')) {
+        try {
+            if(!(Test-Path $path)){continue}
+            $key=Get-Item $path
+            $name=@($key.GetValueNames() | Where-Object {$_ -match [regex]::Escape($pattern)}) | Select-Object -First 1
+            if($name){$uri+='?registeredAppMachine='+[uri]::EscapeDataString($name);break}
+        }catch{}
+    }
+    # Explorer hands Settings to the interactive desktop shell rather than writing
+    # associations under the elevated technician account.
+    Start-Process explorer.exe -ArgumentList ('"'+$uri+'"')
+    Append-Terminal ('[ACTION] '+$App+' defaults page opened — confirm your choices in Windows.')
+}
+function Show-DefaultChoices {
+    $dialog=New-Object Windows.Forms.Form
+    Initialize-WindowLayout $dialog
+    $dialog.Text='Chrome and VLC defaults';$dialog.Icon=$form.Icon
+    $dialog.ClientSize=New-Object Drawing.Size(430,165)
+    $dialog.StartPosition='CenterParent';$dialog.FormBorderStyle='FixedDialog';$dialog.MaximizeBox=$false;$dialog.MinimizeBox=$false
+    $dialog.BackColor=$form.BackColor;$dialog.ForeColor=$form.ForeColor
+    $label=New-Object Windows.Forms.Label
+    $label.Text='Windows needs your confirmation. Open each app below and choose Set default (or its file types) in Settings.'
+    $label.SetBounds(16,15,398,52);$dialog.Controls.Add($label)
+    $chrome=New-Object Windows.Forms.Button;$chrome.Text='Chrome defaults';$chrome.SetBounds(16,77,190,34)
+    $vlc=New-Object Windows.Forms.Button;$vlc.Text='VLC defaults';$vlc.SetBounds(220,77,194,34)
+    $chrome.Add_Click({try{Open-AppDefaults 'Chrome'}catch{Message $_.Exception.Message}})
+    $vlc.Add_Click({try{Open-AppDefaults 'VLC'}catch{Message $_.Exception.Message}})
+    $done=New-Object Windows.Forms.Button;$done.Text='Done';$done.SetBounds(314,123,100,28);$done.DialogResult='OK'
+    foreach($b in @($chrome,$vlc,$done)){$b.FlatStyle='Flat';$b.BackColor=[Drawing.Color]::FromArgb(32,39,47);$dialog.Controls.Add($b)}
+    $dialog.CancelButton=$done
+    Append-Terminal '[ACTION] Choose Chrome/VLC defaults in Windows Settings.'
+    Complete-WindowLayout $dialog
+    try{[void]$dialog.ShowDialog($form)}finally{$dialog.Dispose()}
+}
+function Start-DeviceInfo {
+    if($script:infoProcess -and !$script:infoProcess.HasExited){return}
+    $script:infoDir=New-RunFolder
+    [IO.File]::WriteAllBytes((Join-Path $infoDir 'Device-Info.ps1'),(Get-Asset 'Device-Info.ps1'))
+    $script:infoProcess=Start-PowerShell (Join-Path $infoDir 'Device-Info.ps1')
+    $script:infoStarted=Get-Date
+}
+function Start-Installation([string[]]$Selected) {
+    if(!$Selected.Count){return}
+    if($Preview){Append-Terminal ('[INFO] Preview selection: '+($Selected -join ', '));return}
+    $script:lastRun=New-RunFolder
+    [IO.File]::WriteAllBytes((Join-Path $lastRun 'Install-Worker.ps1'),(Get-Asset 'Install-Worker.ps1'))
+    if('Microsoft.Office' -in $Selected) {[IO.File]::WriteAllBytes((Join-Path $lastRun 'setup.exe'),(Get-Asset 'setup.exe'))}
+    $request=@{Selected=@($Selected);Ssid=$ssid;Password=$password;ProfileName=$profileName;OfficeProductId=$OfficeProductId;OfficeLanguage=$OfficeLanguage}
+    # Same-user DPAPI handoff; plaintext credentials are not left in the run folder.
+    $json=$request | ConvertTo-Json -Compress
+    ConvertTo-SecureString $json -AsPlainText -Force | ConvertFrom-SecureString | Set-Content (Join-Path $lastRun 'request.enc')
+    $request=$null;$json=$null
+    $script:logLines=0
+    $terminal.Clear()
+    Append-Terminal '[INFO] Starting selected applications...'
+    $script:installProcess=Start-PowerShell (Join-Path $lastRun 'Install-Worker.ps1')
+    $appsButton.Enabled=$false;$debloatButton.Enabled=$false;$header.Text='INSTALLING';$header.ForeColor=[Drawing.Color]::Turquoise
+}
+$script:form=New-Object Windows.Forms.Form
+Initialize-WindowLayout $form
+$form.Text='WRAYNET Setup v2.2';$form.ClientSize=New-Object Drawing.Size(560,446)
+$form.StartPosition='CenterScreen';$form.FormBorderStyle='FixedSingle';$form.MaximizeBox=$false
+$form.BackColor=[Drawing.Color]::FromArgb(22,26,31)
+$form.ForeColor=[Drawing.Color]::Gainsboro;$form.Font=New-Object Drawing.Font('Segoe UI',9)
+$iconStream=New-Object IO.MemoryStream(,(Get-Asset 'wraynet.ico'))
+$form.Icon=New-Object Drawing.Icon($iconStream)
+$logoStream=New-Object IO.MemoryStream(,(Get-Asset 'logo.png'))
+$logo=New-Object Windows.Forms.PictureBox
+$logo.SetBounds(15,15,185,34);$logo.SizeMode='Zoom';$logo.Image=[Drawing.Image]::FromStream($logoStream)
+$logo.Cursor='Hand';$logo.Add_Click({Start-Process 'https://wraynet.nz'});$form.Controls.Add($logo)
+function LabelAt($text,$x,$y,$w=400) {
+    $l=New-Object Windows.Forms.Label;$l.Text=$text;$l.SetBounds($x,$y,$w,23)
+    $form.Controls.Add($l);return $l
+}
+    function Prompt-Fields([string]$title,[string[]]$labels,[bool]$secret=$false,[string]$initial='') {
+        $d=New-Object Windows.Forms.Form; Initialize-WindowLayout $d; $d.Icon=$form.Icon
+        $d.Text=$title; $d.ClientSize=New-Object Drawing.Size(410,(80+65*$labels.Count))
+        $d.StartPosition='CenterParent'; $d.FormBorderStyle='FixedDialog'; $d.MaximizeBox=$false; $d.MinimizeBox=$false
+        $boxes=@(); $y=12
+        foreach($label in $labels) {
+            $l=New-Object Windows.Forms.Label; $l.Text=$label; $l.SetBounds(15,$y,380,20); $d.Controls.Add($l)
+            $b=New-Object Windows.Forms.TextBox; $b.SetBounds(15,($y+23),380,25); $b.UseSystemPasswordChar=$secret
+            $d.Controls.Add($b); $boxes+= $b; $y+=65
+        }
+        if($initial) {$boxes[0].Text=$initial}
+        $ok=New-Object Windows.Forms.Button; $ok.Text='Confirm'; $ok.SetBounds(210,($y+10),90,28); $ok.DialogResult='OK'
+        $cancel=New-Object Windows.Forms.Button; $cancel.Text='Cancel'; $cancel.SetBounds(305,($y+10),90,28); $cancel.DialogResult='Cancel'
+        $d.Controls.AddRange(@($ok,$cancel)); $d.AcceptButton=$ok; $d.CancelButton=$cancel
+        Complete-WindowLayout $d
+        try { if($d.ShowDialog($form) -eq 'OK') { return ,@($boxes | ForEach-Object {$_.Text}) } }
+        finally {$d.Dispose()}
+    }
+
+$script:header=LabelAt $(if($Preview){'PREVIEW'}else{'READY'}) 315 24 230
+$header.TextAlign='MiddleRight';$header.ForeColor=[Drawing.Color]::Turquoise
+$header.Font=New-Object Drawing.Font('Consolas',12,[Drawing.FontStyle]::Bold)
+$script:tip=New-Object Windows.Forms.ToolTip
+$script:values=@{}
+$cv=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+$bios=Get-ItemProperty 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -ErrorAction SilentlyContinue
+$edition=$cv.ProductName
+if(!$edition){$edition='Windows'}
+if([int]$cv.CurrentBuild -ge 22000){$edition=$edition -replace 'Windows 10','Windows 11'}
+$script:windowsLabel=($edition+' '+$cv.DisplayVersion).Trim()
+$model=if($bios.SystemProductName){$bios.SystemProductName}else{'Detecting...'}
+$rows=@(@('MODEL',$model),@('SERIAL','Detecting...'),@('WINDOWS',$windowsLabel),@('PC NAME',$env:COMPUTERNAME))
+$y=67
+foreach($row in $rows) {
+    $l=LabelAt $row[0] 16 $y 87;$l.ForeColor=[Drawing.Color]::Gray;$l.Font=New-Object Drawing.Font('Consolas',9)
+    $v=LabelAt $row[1] 105 $y 438;$v.AutoEllipsis=$true;$values[$row[0]]=$v
+    if($row[0] -in @('WINDOWS','PC NAME')){$v.ForeColor=[Drawing.Color]::Turquoise;$v.Cursor='Hand';$tip.SetToolTip($v,'Click to change')}
+    $y+=24
+}
+    $values.'PC NAME'.Add_Click({
+        if($Preview){Message 'Preview: rename is disabled.';return}
+        if($script:domainState -ne $false){Message 'Domain status is joined or not yet available. Use the Windows name-change dialog; domain credentials may be required.';Start-Process 'sysdm.cpl';return}
+        $fields=Prompt-Fields 'Rename computer — restart required afterwards' @('New computer name (1–15 characters)') $false (Get-SuggestedName $values.SERIAL.Text $script:namePrefix $env:COMPUTERNAME)
+        if(!$fields){return};$name=$fields[0].Trim()
+        if($name -notmatch '^(?=.{1,15}$)(?![0-9]+$)[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$'){Message 'Use 1–15 letters, numbers or internal hyphens; not only numbers.';return}
+        if($name -eq $env:COMPUTERNAME){return}
+        try {Rename-Computer -NewName $name -Force -ErrorAction Stop;$values.'PC NAME'.Text="$name (restart pending)";$script:restartRequired=$true;$restartNotice.Text='Restart required — click to restart';Message 'Name changed. Restart when ready; this tool will not restart the computer.'}
+        catch {Message ('Rename failed: '+$_.Exception.Message)}
+    })
+    $values.WINDOWS.Add_Click({
+        if($Preview){Message 'Preview: activation changes are disabled.';return}
+        $fields=Prompt-Fields 'Install Windows product key and try activation' @('Product key (must match the installed Windows edition)') $false $DefaultWindowsKey
+        if(!$fields){return};$key=$fields[0].Trim().ToUpperInvariant()
+        if($key -notmatch '^[A-Z0-9]{5}(-[A-Z0-9]{5}){4}$'){Message 'Enter a key in XXXXX-XXXXX-XXXXX-XXXXX-XXXXX format.';return}
+        try {
+            if($script:activationProcess -and !$script:activationProcess.HasExited){Message 'An activation request is already running.';return}
+            $folder=New-RunFolder
+            [IO.File]::WriteAllBytes((Join-Path $folder 'Activate.ps1'),(Get-Asset 'Activate.ps1'))
+            # DPAPI protects the key while it is handed to the same-user worker.
+            ConvertTo-SecureString $key -AsPlainText -Force | ConvertFrom-SecureString | Set-Content (Join-Path $folder 'key.txt')
+            $script:activationFolder=$folder
+            $script:activationProcess=Start-PowerShell (Join-Path $folder 'Activate.ps1')
+            $values.WINDOWS.Enabled=$false
+            Append-Terminal '[INFO] Applying product key and requesting activation...'
+        }catch {Message $_.Exception.Message}
+        finally {$key=$null;$fields=$null}
+    })
+
+$values.MODEL.Cursor='Hand';$values.SERIAL.Cursor='Hand'
+$tip.SetToolTip($values.MODEL,'Click to copy model')
+$tip.SetToolTip($values.SERIAL,'Click to copy serial number')
+$values.MODEL.Add_Click({try{[Windows.Forms.Clipboard]::SetText($values.MODEL.Text);Append-Terminal '[INFO] Model copied.'}catch{Message 'Clipboard unavailable.'}})
+$values.SERIAL.Add_Click({if($values.SERIAL.Text -in @('Detecting...','Unavailable')){return};try{[Windows.Forms.Clipboard]::SetText($values.SERIAL.Text);Append-Terminal '[INFO] Serial copied.'}catch{Message 'Clipboard unavailable.'}})
+# Model label opens Device Manager; the model value copies the model.
+foreach($control in $form.Controls){if($control -is [Windows.Forms.Label] -and $control.Text -eq 'MODEL'){
+    $control.Cursor='Hand';$tip.SetToolTip($control,'Open Device Manager');$control.Add_Click({Start-Process 'devmgmt.msc'})
+}}
+$script:restartNotice=LabelAt '' 16 168 528
+$restartNotice.ForeColor=[Drawing.Color]::Khaki
+$restartNotice.Cursor='Hand'
+$tip.SetToolTip($restartNotice,'Restart Windows after confirmation')
+$restartNotice.Add_Click({
+    if(!$script:restartRequired){return}
+    if($Preview){Message 'Preview: restart is disabled.';return}
+    if(($script:installProcess -and !$installProcess.HasExited) -or ($script:activationProcess -and !$activationProcess.HasExited)) {Message 'Wait for the current task to finish before restarting.';return}
+    $guard=New-Object Threading.Mutex($false,'Global\WRAYNET-AppSetup-v4');$held=$false
+    try {
+        try{$held=$guard.WaitOne(0)}catch [Threading.AbandonedMutexException]{$held=$true}
+        if(!$held){Message 'Another WRAYNET task is running. Wait for it to finish.';return}
+        if([Windows.Forms.MessageBox]::Show($form,'Restart this computer now? Save any open work first.','Restart Windows','YesNo','Warning') -eq 'Yes') {
+            Restart-Computer -ErrorAction Stop
+        }
+    }catch {Message ('Restart could not be requested: '+$_.Exception.Message)}
+    finally{if($held){$guard.ReleaseMutex()};$guard.Dispose()}
+})
+$script:buttonRow=New-Object Windows.Forms.TableLayoutPanel
+$buttonRow.SetBounds(16,403,528,36);$buttonRow.Anchor='Top,Left'
+$buttonRow.ColumnCount=4;$buttonRow.RowCount=1
+$buttonRow.AutoSize=$true;$buttonRow.AutoSizeMode='GrowOnly'
+$buttonRow.Padding=New-Object Windows.Forms.Padding(0)
+for($i=0;$i -lt 4;$i++){[void]$buttonRow.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle([Windows.Forms.SizeType]::Percent,25)))}
+$form.Controls.Add($buttonRow)
+$script:appsButton=New-Object Windows.Forms.Button
+$appsButton.Text='Apps'
+$appsButton.FlatStyle='Flat';$appsButton.BackColor=[Drawing.Color]::FromArgb(29,61,70)
+$buttonRow.Controls.Add($appsButton,0,0)
+$appsButton.Add_Click({
+    $d=New-Object Windows.Forms.Form; Initialize-WindowLayout $d; $d.Icon=$form.Icon
+    $d.Text='WRAYNET — Apps';$d.ClientSize=New-Object Drawing.Size(360,280)
+    $d.StartPosition='CenterParent';$d.FormBorderStyle='FixedDialog';$d.MaximizeBox=$false;$d.MinimizeBox=$false
+    $d.BackColor=$form.BackColor;$d.ForeColor=$form.ForeColor
+    $checks=New-Object Windows.Forms.CheckedListBox
+    $checks.SetBounds(15,15,330,165);$checks.CheckOnClick=$true;$checks.BorderStyle='FixedSingle'
+    $checks.BackColor=[Drawing.Color]::FromArgb(12,16,20);$checks.ForeColor=[Drawing.Color]::Gainsboro
+    $checks.Font=New-Object Drawing.Font('Segoe UI',11)
+    foreach($app in $catalog){[void]$checks.Items.Add($app.Name,($app.Id -in $script:selection))}
+    $d.Controls.Add($checks)
+    $note=New-Object Windows.Forms.Label;$note.Text='Existing installations are skipped. Office runs last.';$note.SetBounds(15,190,330,30);$d.Controls.Add($note)
+    $go=New-Object Windows.Forms.Button;$go.Text='Install selected';$go.SetBounds(110,235,135,30);$go.DialogResult='OK'
+    $cancel=New-Object Windows.Forms.Button;$cancel.Text='Cancel';$cancel.SetBounds(255,235,90,30);$cancel.DialogResult='Cancel'
+    foreach($b in @($go,$cancel)){$b.FlatStyle='Flat';$b.BackColor=[Drawing.Color]::FromArgb(32,39,47);$d.Controls.Add($b)}
+    $d.AcceptButton=$go;$d.CancelButton=$cancel
+    Complete-WindowLayout $d
+    try {
+        if($d.ShowDialog($form) -eq 'OK') {
+            $script:selection=@($checks.CheckedIndices | ForEach-Object {$catalog[[int]$_].Id})
+            if(!$selection.Count){Message 'Choose at least one application.'}
+            else {try {Start-Installation $selection}catch {Append-Terminal ('[FAIL] '+$_.Exception.Message);$header.Text='ATTENTION NEEDED';$appsButton.Enabled=$true;$debloatButton.Enabled=$true}}
+        }
+    }finally{$d.Dispose()}
+})
+$l=LabelAt 'ACTIVITY' 16 194 520;$l.ForeColor=[Drawing.Color]::LightSkyBlue
+$script:terminal=New-Object Windows.Forms.RichTextBox
+$terminal.SetBounds(16,219,528,171);$terminal.ReadOnly=$true;$terminal.BackColor=[Drawing.Color]::FromArgb(8,10,12)
+$terminal.ForeColor=[Drawing.Color]::Gainsboro;$terminal.BorderStyle='FixedSingle';$terminal.Font=New-Object Drawing.Font('Consolas',9)
+$terminal.WordWrap=$true;$form.Controls.Add($terminal)
+Append-Terminal '[READY] Choose Apps or Debloat to begin.'
+if($Preview){Append-Terminal '[INFO] Preview: no installs, rename or activation changes.'}
+$script:debloatButton=New-Object Windows.Forms.Button
+$debloatButton.Text='Debloat';$buttonRow.Controls.Add($debloatButton,1,0)
+$debloatButton.Add_Click({
+    if($Preview){Append-Terminal '[INFO] Preview: debloat does not run.';return}
+    try {
+        $script:lastRun=New-RunFolder
+        foreach($asset in @('Debloat-Worker.ps1','QuickSanitize.ps1')) {
+            [IO.File]::WriteAllBytes((Join-Path $lastRun $asset),(Get-Asset $asset))
+        }
+        $script:logLines=0;$terminal.Clear()
+        $script:installProcess=Start-PowerShell (Join-Path $lastRun 'Debloat-Worker.ps1')
+        $appsButton.Enabled=$false;$debloatButton.Enabled=$false;$header.Text='DEBLOATING'
+    }catch {Append-Terminal ('[FAIL] Debloat could not start: '+$_.Exception.Message);$header.Text='ATTENTION NEEDED';$appsButton.Enabled=$true;$debloatButton.Enabled=$true}
+})
+$updateButton=New-Object Windows.Forms.Button;$updateButton.Text='Update'
+$updateButton.Add_Click({Start-Process 'ms-settings:windowsupdate'})
+$buttonRow.Controls.Add($updateButton,2,0)
+$logsButton=New-Object Windows.Forms.Button;$logsButton.Text='Logs'
+$logsButton.Add_Click({Start-Process explorer.exe -ArgumentList ('"'+$baseLogs+'"')})
+$buttonRow.Controls.Add($logsButton,3,0)
+foreach($b in @($appsButton,$debloatButton,$updateButton,$logsButton)) {
+    $b.Dock='Fill';$b.AutoSize=$true;$b.AutoSizeMode='GrowAndShrink'
+    $b.MinimumSize=New-Object Drawing.Size(88,32)
+    $b.Padding=New-Object Windows.Forms.Padding(8,3,8,3)
+    $b.Margin=New-Object Windows.Forms.Padding(0,0,8,0)
+    $b.FlatStyle='Flat';$b.BackColor=[Drawing.Color]::FromArgb(32,39,47)
+}
+$logsButton.Margin=New-Object Windows.Forms.Padding(0)
+$script:timer=New-Object Windows.Forms.Timer
+$timer.Interval=500
+$timer.Add_Tick({
+    # Only local file polling on UI thread. No CIM, network or installer waits.
+    if($script:infoProcess) {
+        $path=Join-Path $infoDir 'info.json'
+        if(Test-Path $path) {
+            try {
+                $data=Get-Content $path -Raw | ConvertFrom-Json
+                $values.SERIAL.Text=$data.Serial
+                if($data.Model){$values.MODEL.Text=$data.Model}
+                $script:domainState=$data.PartOfDomain
+                if($data.NamePrefix){$script:namePrefix=$data.NamePrefix}
+                $values.WINDOWS.Text=$windowsLabel+' · '+$data.Activation
+                $tip.SetToolTip($values.WINDOWS,('Build '+$cv.CurrentBuild+'.'+$cv.UBR+' — click to enter a key'))
+                if($data.Complete){$script:infoProcess=$null}
+            }catch {}
+        }
+        if($script:infoProcess -and ($infoProcess.HasExited -or ((Get-Date)-$infoStarted).TotalSeconds -gt 40)) {
+            if(!$infoProcess.HasExited){$infoProcess.Kill()}
+            if($values.SERIAL.Text -eq 'Detecting...'){$values.SERIAL.Text='Unavailable'}
+            $script:infoProcess=$null
+        }
+    }
+    if($script:activationProcess -and $activationProcess.HasExited) {
+        $path=Join-Path $activationFolder 'activation.json'
+        if(Test-Path $path){
+            try {$a=Get-Content $path -Raw | ConvertFrom-Json;Append-Terminal $a.Message}catch {Append-Terminal '[WARN] Could not read activation result.'}
+        }else{Append-Terminal '[WARN] Activation worker exited without a result; check Windows Activation settings.'}
+        $script:activationProcess=$null;$values.WINDOWS.Enabled=$true
+        try{Start-DeviceInfo}catch{}
+    }
+    if($script:installProcess) {
+        $path=Join-Path $lastRun 'ui.log'
+        if(Test-Path $path) {
+            try {
+                $lines=@(Get-Content -LiteralPath $path -Encoding UTF8)
+                for($i=$script:logLines;$i -lt $lines.Count;$i++){Append-Terminal $lines[$i]}
+                $script:logLines=$lines.Count
+            }catch {}
+        }
+        if($installProcess.HasExited) {
+            $done=Join-Path $lastRun 'done.json'
+            $ok=$false;$offerDefaults=$false
+            if(Test-Path $done){try {$r=Get-Content $done -Raw | ConvertFrom-Json;$ok=($r.ExitCode -eq 0 -and $installProcess.ExitCode -eq 0);$offerDefaults=(@($r.Results | Where-Object {$_.App -eq 'Debloat' -and $_.Status -in @('Complete','Needs review')}).Count -gt 0);if(@($r.Results | Where-Object {$_.Status -eq 'Restart required'}).Count){$script:restartRequired=$true;$restartNotice.Text='Restart required — click to restart'}}catch{}}
+            else {Append-Terminal '[FAIL] Installer worker exited without a completion result. See logs.'}
+            $header.Text=if($ok){'COMPLETE'}else{'ATTENTION NEEDED'}
+            $header.ForeColor=if($ok){[Drawing.Color]::Turquoise}else{[Drawing.Color]::Khaki}
+            $script:installProcess=$null;$appsButton.Enabled=$true;$debloatButton.Enabled=$true
+            Remove-Item (Join-Path $lastRun 'setup.exe'),(Join-Path $lastRun 'request.enc') -Force -ErrorAction SilentlyContinue
+            if($offerDefaults){Show-DefaultChoices}
+        }
+    }
+})
+$form.Add_Shown({$timer.Start();try{Start-DeviceInfo}catch{$values.SERIAL.Text='Unavailable'}})
+$form.Add_FormClosing({param($sender,$e)
+    if(($script:installProcess -and !$installProcess.HasExited) -or ($script:activationProcess -and !$activationProcess.HasExited)) {
+        $answer=[Windows.Forms.MessageBox]::Show($form,'A task is still running. Close WRAYNET and leave it running in the background? Logs will still be saved.','WRAYNET Setup','YesNo','Question')
+        if($answer -ne 'Yes'){$e.Cancel=$true}
+    }
+})
+Complete-WindowLayout $form
+try {[void]$form.ShowDialog()}
+finally {
+    $timer.Stop();$timer.Dispose()
+    if($script:infoProcess -and !$infoProcess.HasExited){$infoProcess.Kill()}
+    $logo.Image.Dispose();$form.Dispose();$logoStream.Dispose();$iconStream.Dispose();$tip.Dispose()
+}
